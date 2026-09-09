@@ -1,4 +1,4 @@
-# English for Baby 👶
+# English for Baby
 
 Family self-hosted web app for 5-year-old English reading practice.
 
@@ -67,5 +67,5 @@ Settings are stored in SQLite `settings` table. Key setting: `show_text` (contro
 │   │   └── pages/
 │   │       └── Admin.tsx          # Parent panel
 │   └── vite.config.ts
-└── 儿童英语跟读练习Web应用建设方案.md  # Design doc (git-ignored)
+└── README.md
 ```
