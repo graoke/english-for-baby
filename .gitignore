@@ -1,0 +1,9 @@
+儿童英语跟读练习Web应用建设方案.md
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.venv_offline/
+node_modules/
+server/data/
+*.log
