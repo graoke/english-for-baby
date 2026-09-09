@@ -10,6 +10,11 @@ Family self-hosted web app for 5-year-old English reading practice.
 - **Daily Chart**: Line chart with dual Y-axes (count + score), date range picker
 - **Celebration**: Confetti & stickers regardless of performance — scores are for parents only
 
+## Inspiration
+
+- [read-along-ai](https://github.com/kingkw1/read-along-ai) — core concept of guided reading practice
+- [posy-pip-picture-book](https://github.com/FutaoSmile/posy-pip-picture-book) — UI/visual style reference
+
 ## Architecture
 
 | Layer | Stack |
