@@ -6,8 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # 项目根目录
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# 兼容 docker compose（v2）和 docker-compose（v1）
+if docker compose version &>/dev/null; then
+    DC="docker compose"
+else
+    DC="docker-compose"
+fi
+
 echo "=== Peppa Reader 局域网部署 ==="
 echo "项目根目录: $ROOT_DIR"
+echo "Docker 命令: $DC"
 
 # 1. 构建前端
 echo "📦 构建前端..."
@@ -23,17 +31,23 @@ mkdir -p server/data/models server/data/audio server/data/images server/data/rec
 # 3. Docker 构建（从 deploy/ 目录）
 echo "🐳 Docker 构建..."
 cd "$SCRIPT_DIR"
-docker-compose build
+$DC build
 cd "$ROOT_DIR"
 
 # 4. 启动服务
 echo "🚀 启动服务..."
 cd "$SCRIPT_DIR"
-docker-compose up -d
+$DC up -d
 cd "$ROOT_DIR"
 
-# 5. 获取本机 IP
-LOCAL_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
+# 5. 获取本机 IP（兼容 macOS 和 Linux）
+if command -v ifconfig &>/dev/null; then
+    LOCAL_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
+elif command -v hostname &>/dev/null; then
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+else
+    LOCAL_IP="localhost"
+fi
 
 echo ""
 echo "✅ 部署完成！"
@@ -46,5 +60,5 @@ echo "   如需 iPad 录音，请使用 HTTPS（参见 deploy/README_deploy.md�
 echo ""
 echo "📌 首次使用请设置家长面板 PIN"
 echo ""
-echo "查看日志: cd deploy && docker-compose logs -f"
-echo "停止服务: cd deploy && docker-compose down"
+echo "查看日志: cd deploy && $DC logs -f"
+echo "停止服务: cd deploy && $DC down"
