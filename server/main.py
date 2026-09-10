@@ -13,6 +13,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 
 from .database import init_db, DATA_DIR
 from .routers import lessons, items, attempt, upload, history, settings
@@ -38,9 +39,6 @@ async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     init_db()
     logger.info("Database initialized, DATA_DIR=%s", DATA_DIR)
-    # Pre-load MiniCPM in background so first request isn't slow
-    from .services.compare import preload_minicpm
-    preload_minicpm()
     yield
     logger.info("Shutting down")
 
@@ -77,11 +75,34 @@ app.include_router(upload.router)
 app.include_router(history.router)
 app.include_router(settings.router)
 
-# Serve static files (audio, images, recordings)
-for subdir in ("audio", "images", "recordings"):
+# Serve static files (audio, images only — recordings require auth)
+for subdir in ("audio", "images"):
     d = DATA_DIR / subdir
     d.mkdir(parents=True, exist_ok=True)
     app.mount(f"/data/{subdir}", StaticFiles(directory=str(d)), name=subdir)
+
+
+@app.get("/data/recordings/{filename}")
+async def serve_recording(filename: str, request: 'fastapi.Request'):
+    """Stream a recording file — requires parent auth (header or query param token)."""
+    from fastapi import HTTPException
+    # Accept auth via X-Session-Token header OR ?token= query param
+    token = request.headers.get("X-Session-Token", "") or request.query_params.get("token", "")
+    if not settings._validate_session(token):
+        raise HTTPException(401, "需要家长权限")
+    filepath = DATA_DIR / "recordings" / filename
+    if not filepath.exists() or not filepath.is_file():
+        raise HTTPException(404, "Recording not found")
+    # Prevent path traversal
+    if filepath.resolve().parent != (DATA_DIR / "recordings").resolve():
+        raise HTTPException(403, "Forbidden")
+    import mimetypes
+    media_type = mimetypes.guess_type(filename)[0] or "audio/webm"
+    def iterfile():
+        with open(filepath, "rb") as f:
+            while chunk := f.read(65536):
+                yield chunk
+    return StreamingResponse(iterfile(), media_type=media_type)
 
 
 @app.get("/api/health")

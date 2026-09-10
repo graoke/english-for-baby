@@ -1,3 +1,12 @@
+# Stage 1: Build frontend
+FROM node:18-slim AS frontend-builder
+WORKDIR /app/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# Stage 2: Python backend
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -11,8 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server /app/server
 
-# 前端产物目录
-RUN mkdir -p /app/web/dist
+# Copy built frontend into nginx html directory
+RUN mkdir -p /usr/share/nginx/html
+COPY --from=frontend-builder /app/web/dist /usr/share/nginx/html
 
 ENV DATA_DIR=/app/server/data
 RUN mkdir -p /app/server/data

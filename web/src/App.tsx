@@ -29,6 +29,7 @@ export default function App() {
       .then(data => {
         setSettings({
           show_text: data.show_text !== 'false',
+          tts_mode: data.tts_mode === 'tencent' ? 'tencent' : 'local',
         })
       })
       .catch(() => {})

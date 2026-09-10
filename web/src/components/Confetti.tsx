@@ -36,7 +36,7 @@ export default function Confetti() {
         <div key={p.id} style={{
           position: 'absolute', left: `${p.x}%`, top: `${p.y}%`,
           width: p.size, height: p.size, background: p.color,
-          borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+          borderRadius: p.id % 2 === 0 ? '50%' : '2px',
           opacity: p.life, transform: `rotate(${p.rotation}deg)`,
         }} />
       ))}

@@ -1,16 +1,22 @@
-"""Two-stage comparison: sequence alignment → MiniCPM phonetic evaluator (GGUF)."""
+"""
+完成度评分（Completion-only scoring）—— 直接替换原 compare.py
+=====================================
+只回答一个问题：目标句子里的词，孩子读到了几个？
+不回答读得好不好 —— 那是发音评估（GOP）的事。
 
-import logging
-import os
+设计取舍
+--------
+- 停顿、语气词、卡顿、重复词：不影响完成度（词袋口径天然免疫）
+- 多说的词：不扣分（"读没读完"不惩罚"多读"）
+- ASR 的单复数/拼写小错：宽容匹配，不误伤
+- 目标里的重复词：多重集语义，读 1 次只算 1 次
+"""
+
 import re
-import threading
-import time
-from difflib import SequenceMatcher
-from pathlib import Path
-from typing import List
+from collections import Counter
+from typing import Dict, List, Tuple
 
-logger = logging.getLogger("peppa.compare")
-
+# ── 缩写展开（沿用原逻辑，并额外反建"合并形式"表）──────────────
 CONTRACTIONS = {
     "don't": "do not", "doesn't": "does not", "didn't": "did not",
     "can't": "cannot", "won't": "will not", "isn't": "is not",
@@ -23,166 +29,153 @@ CONTRACTIONS = {
     "you'll": "you will", "he'll": "he will", "she'll": "she will",
     "we'll": "we will", "they'll": "they will", "i'd": "i would",
     "you'd": "you would", "he'd": "he would", "she'd": "she would",
-    "we'd": "you would", "they'd": "they would", "that's": "that is",
+    "we'd": "we would", "they'd": "they would", "that's": "that is",
     "who's": "who is", "what's": "what is", "where's": "where is",
     "when's": "when is", "how's": "how is",
 }
 
-DEFAULT_GGUF_PATH = str(Path(__file__).parent.parent.parent / "data" / "models" / "minicpm-phonetic-evaluator-q4_k_m.gguf")
+# 反查：展开后两词合并 → 缩写去撇号形式。用于匹配 ASR 里的 "its" / "dont"
+_MERGED = {}
+for _c, _e in CONTRACTIONS.items():
+    _parts = _e.split()
+    if len(_parts) == 2:
+        _MERGED["".join(_parts)] = _c.replace("'", "")
 
-
-def _get_gguf_path() -> str:
-    return os.environ.get("MINICPM_GGUF_PATH", DEFAULT_GGUF_PATH)
+# ── 填充词 / 语气词：出现即忽略，不影响完成度 ────────────────────
+FILLERS = {
+    "uh", "um", "er", "ah", "eh", "mm", "hmm", "mhm", "mmhmm", "uhhuh",
+    "oh", "huh", "yeah", "yep", "yup", "ok", "okay", "hm", "ahh", "uhm",
+    "erm", "ehm", "mmmm", "uhuh", "huhuh",
+}
 
 
 def normalize(text: str) -> List[str]:
-    """返回词列表（保留顺序）。"""
+    """小写 → 展开缩写 → 去标点 → 去填充词。"""
     t = text.lower().strip()
     for contraction, expanded in CONTRACTIONS.items():
         t = t.replace(contraction, expanded)
-    t = re.sub(r"[^a-z0-9\s]", "", t)
-    return t.split()
+    t = re.sub(r"[^a-z0-9\s]", " ", t)          # 撇号/连字符都变空格
+    t = re.sub(r"\s+", " ", t).strip()
+    return [w for w in t.split() if w and w not in FILLERS]
 
 
-def score(target: List[str], transcript: List[str]) -> float:
-    """序列对齐评分，考虑词序。"""
-    if not target:
-        return 1.0
-    matcher = SequenceMatcher(None, target, transcript, autojunk=False)
-    return sum(size for _, _, size in matcher.get_matching_blocks()) / len(target)
+# ── 宽容匹配：应对 ASR 的单复数 / 拼写抖动 ────────────────────────
+def _lev(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > 2:
+        return 3
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
 
 
-def find_hit_missed(target: List[str], transcript: List[str]) -> tuple:
-    """找出命中的词和遗漏的词，保留词序。"""
-    target_set = set(target)
-    transcript_set = set(transcript)
-    hit = [w for w in target if w in transcript_set]
-    missed = [w for w in target if w not in transcript_set]
-    return hit, missed
+def _stem(w: str) -> str:
+    """极简词形还原：去复数 / 时态后缀。够用即可，不用 NLTK。"""
+    for suf, min_len in (("ies", 4), ("es", 4), ("ing", 5), ("ed", 4), ("s", 3)):
+        if w.endswith(suf) and len(w) >= min_len:
+            return w[: -len(suf)] + ("y" if suf == "ies" else "")
+    return w
 
 
-# ── MiniCPM GGUF (lazy load, thread-safe) ─────────────────────
-_llm = None
-_llm_lock = threading.Lock()
-_infer_lock = threading.Lock()
+def _fuzzy_equal(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if _stem(a) == _stem(b):                    # cat / cats, run / running
+        return True
+    n = max(len(a), len(b))
+    budget = 2 if n >= 7 else (1 if n >= 4 else 0)
+    return budget > 0 and _lev(a, b) <= budget   # three / tree, cat / cot
 
 
-def _load_llm():
-    global _llm
-    if _llm is not None:
-        return
-    with _llm_lock:
-        if _llm is not None:
-            return
-        
-        gguf_path = _get_gguf_path()
-        if not Path(gguf_path).exists():
-            raise FileNotFoundError(
-                f"MiniCPM GGUF model not found at {gguf_path}\n"
-                f"Please download the model and place it there, or set MINICPM_GGUF_PATH environment variable."
-            )
-        
-        from llama_cpp import Llama
-        logger.info("Loading MiniCPM GGUF from %s ...", gguf_path)
-        t0 = time.time()
-        _llm = Llama(
-            model_path=gguf_path,
-            n_ctx=512,
-            n_threads=4,
-            verbose=False,
-        )
-        logger.info("MiniCPM GGUF loaded in %.1fs", time.time() - t0)
-
-
-def _minicpm_judge(target: str, transcript: str) -> bool:
-    _load_llm()
-
-    prompt = f"""### Instruction:
-Determine if the ASR transcript is a valid phonetic match for the target word. Output only True or False.
-
-### Input:
-Target: {target} | ASR: {transcript}
-
-### Output:
-"""
-    t0 = time.time()
-    try:
-        with _infer_lock:
-            output = _llm(
-                prompt,
-                max_tokens=8,
-                temperature=0.0,
-                stop=["###", "\n"],
-            )
-        result = output["choices"][0]["text"].strip()
-        elapsed = time.time() - t0
-        logger.info("MiniCPM judge (%.2fs): target=%r transcript=%r → %s", elapsed, target, transcript, result)
-        return result.lower().startswith("true")
-    except Exception as e:
-        logger.exception("MiniCPM inference failed: target=%r transcript=%r", target, transcript)
-        return False
-
-
-def compare(target: str, transcript: str) -> dict:
-    """两阶段对比：序列对齐 → MiniCPM 语音评估。"""
+# ── 核心：多重集完成度 ────────────────────────────────────────────
+def completion(target: str, transcript: str, fuzzy: bool = True) -> Dict:
+    """返回完成度。target 里的每个词，只要在 transcript 里出现过就算读到。"""
     target_words = normalize(target)
-    transcript_words = normalize(transcript)
-
-    logger.info("Compare: target=%r → %s, transcript=%r → %s",
-                target[:50], target_words, transcript[:50], transcript_words)
+    asr_words = normalize(transcript)
 
     if not target_words:
-        return {
-            "hit_ratio": 1.0, "hit_words": [], "missed_words": [],
-            "target_word_count": 0, "method": "exact",
-        }
+        return _result(1.0, [], [], 0, [], "empty-target")
 
-    # Stage 1: 序列对齐
-    ratio = score(target_words, transcript_words)
-    hit, missed = find_hit_missed(target_words, transcript_words)
+    pool: Counter = Counter(asr_words)      # 剩余可用的 ASR 词（多重集）
+    hit: List[str] = []
+    missed: List[str] = []
 
-    if ratio >= 1.0:
-        logger.info("Exact match → True")
-        return {
-            "hit_ratio": 1.0, "hit_words": hit, "missed_words": [],
-            "target_word_count": len(target_words), "method": "exact",
-        }
+    i = 0
+    while i < len(target_words):
+        w = target_words[i]
 
-    # Stage 2: MiniCPM 对遗漏的词做语音评估
-    minicpm_hit_words = list(hit)
-    t0 = time.time()
-    for w in missed:
-        try:
-            if _minicpm_judge(w, transcript):
-                minicpm_hit_words.append(w)
-        except Exception as e:
-            logger.exception("MiniCPM judge exception for word %r", w)
+        # 1) 缩写展开出的两词（it is / do not）优先整体匹配 ASR 的 its / dont。
+        #    仅在确认是缩写展开时才优先，避免误吞普通词对。
+        if i + 1 < len(target_words):
+            merged = w + target_words[i + 1]
+            if merged in _MERGED and _consume(pool, _MERGED[merged], fuzzy):
+                hit.extend([w, target_words[i + 1]])
+                i += 2
+                continue
 
-    # 用修正后的命中词重新计算序列对齐分数
-    transcript_set = set(minicpm_hit_words)
-    corrected_transcript = [w for w in transcript_words if w in transcript_set]
-    final_ratio = score(target_words, corrected_transcript)
-    
-    new_missed = [w for w in target_words if w not in transcript_set]
+        # 2) 单词直接命中
+        if _consume(pool, w, fuzzy):
+            hit.append(w)
+            i += 1
+            continue
 
-    logger.info("Final (%.2fs): hit=%s, missed=%s, ratio=%.3f, method=minicpm",
-                time.time() - t0, minicpm_hit_words, new_missed, final_ratio)
+        # 3) 兜底：任意两词合并（应对 ASR 把多词连写的情况）
+        if i + 1 < len(target_words):
+            merged = w + target_words[i + 1]
+            if _consume(pool, merged, fuzzy):
+                hit.extend([w, target_words[i + 1]])
+                i += 2
+                continue
 
+        missed.append(w)
+        i += 1
+
+    ratio = len(hit) / len(target_words)
+    extra = [w for w in asr_words if w not in Counter(hit)]  # 仅供参考，不扣分
+    return _result(ratio, hit, missed, len(target_words), extra, "completion")
+
+
+def _consume(pool: Counter, word: str, fuzzy: bool) -> bool:
+    """从 pool 里消耗一个能匹配 word 的词；成功返回 True。"""
+    if pool[word] > 0:
+        pool[word] -= 1
+        return True
+    if not fuzzy:
+        return False
+    for cand in list(pool):
+        if pool[cand] > 0 and _fuzzy_equal(word, cand):
+            pool[cand] -= 1
+            return True
+    return False
+
+
+def _result(ratio, hit, missed, total, extra, method) -> Dict:
     return {
-        "hit_ratio": round(final_ratio, 3),
-        "hit_words": minicpm_hit_words,
-        "missed_words": new_missed,
-        "target_word_count": len(target_words),
-        "method": "minicpm",
+        "hit_ratio": round(ratio, 3),
+        "hit_words": hit,
+        "missed_words": missed,
+        "target_word_count": total,
+        "extra_words": extra,
+        "method": method,
     }
 
 
-def preload_minicpm():
-    def _bg():
-        try:
-            _load_llm()
-        except FileNotFoundError as e:
-            logger.warning("MiniCPM model not found: %s", e)
-        except Exception as e:
-            logger.exception("MiniCPM pre-load failed")
-    threading.Thread(target=_bg, daemon=True).start()
+# ── 兼容原 compare.py 的对外接口 ────────────────────────────────
+# attempt.py 只用 result["hit_ratio"] / ["hit_words"]，签名保持不变，
+# 因此路由层、模型层、历史页都不用改。
+
+def score(target: List[str], transcript: List[str]) -> float:
+    """兼容旧调用：给两个已分词的列表，返回完成度。"""
+    if not target:
+        return 1.0
+    return completion(" ".join(target), " ".join(transcript))["hit_ratio"]
+
+
+def compare(target: str, transcript: str) -> dict:
+    """唯一的评分子段。两阶段（序列对齐 → MiniCPM）已整体移除。"""
+    return completion(target, transcript)

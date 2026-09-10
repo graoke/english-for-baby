@@ -35,7 +35,7 @@ class Lesson(SQLModel, table=True):
     page_count: int = 0
     order_no: int = 0
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 # ---------- drill_item ----------
@@ -61,7 +61,7 @@ class DrillItem(SQLModel, table=True):
     tags: Optional[str] = None  # JSON string
     difficulty: int = 1
     enabled: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 # ---------- attempt ----------
@@ -81,7 +81,7 @@ class Attempt(SQLModel, table=True):
 
     # shared
     duration_ms: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 # ---------- settings ----------
@@ -92,4 +92,4 @@ class Settings(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     key: str = Field(unique=True, index=True)
     value: str = ""
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.now)

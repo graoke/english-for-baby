@@ -3,16 +3,15 @@
 import hashlib
 import hmac
 import logging
-import os
 import secrets
 import time
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from ..database import engine
 from ..models import Settings
+from ..schemas import PinSet, PinVerify, SettingsUpdate
 
 logger = logging.getLogger("peppa.settings")
 
@@ -107,8 +106,9 @@ def validate_token(_=Depends(require_parent)):
 
 
 @router.put("", response_model=dict)
-def update_settings(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
-    for key, value in body.items():
+def update_settings(body: SettingsUpdate, session: Session = Depends(get_session), _=Depends(require_parent)):
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
         if key in SENSITIVE_KEYS:
             raise HTTPException(400, f"不允许通过此接口修改 {key}")
         row = session.exec(select(Settings).where(Settings.key == key)).first()
@@ -133,9 +133,9 @@ def get_pin_status(session: Session = Depends(get_session)):
 # ── 设置 PIN ────────────────────────────────────────────────────
 
 @router.post("/pin", response_model=dict)
-def set_pin(body: dict, session: Session = Depends(get_session)):
-    pin = body.get("pin", "")
-    old_pin = body.get("old_pin")
+def set_pin(body: PinSet, session: Session = Depends(get_session)):
+    pin = body.pin
+    old_pin = body.old_pin
     
     if len(pin) < 4:
         raise HTTPException(400, "PIN 至少 4 位")
@@ -204,7 +204,7 @@ def pin_challenge(session: Session = Depends(get_session)):
 
 
 @router.post("/pin/verify", response_model=dict)
-def pin_verify(body: dict, request: Request, session: Session = Depends(get_session)):
+def pin_verify(body: PinVerify, request: Request, session: Session = Depends(get_session)):
     """
     验证 challenge-response proof。
     前端计算：
@@ -215,8 +215,8 @@ def pin_verify(body: dict, request: Request, session: Session = Depends(get_sess
     if not _check_rate_limit(ip):
         raise HTTPException(429, "尝试次数过多，请稍后再试")
 
-    challenge = body.get("challenge", "")
-    h_client = body.get("h", "")
+    challenge = body.challenge
+    h_client = body.h
 
     if not challenge or not h_client:
         raise HTTPException(400, "缺少参数")

@@ -20,25 +20,19 @@ cd "$ROOT_DIR"
 echo "📁 创建数据目录..."
 mkdir -p server/data/models server/data/audio server/data/images server/data/recordings server/data/logs
 
-# 3. 检查 MiniCPM 模型
-if [ ! -f "server/data/models/minicpm-phonetic-evaluator-q4_k_m.gguf" ]; then
-    echo "⚠️  MiniCPM 模型未找到（音素评估功能不可用）"
-    echo "   请下载 GGUF 文件放到 server/data/models/ 目录"
-fi
-
-# 4. Docker 构建（从 deploy/ 目录）
+# 3. Docker 构建（从 deploy/ 目录）
 echo "🐳 Docker 构建..."
 cd "$SCRIPT_DIR"
 docker-compose build
 cd "$ROOT_DIR"
 
-# 5. 启动服务
+# 4. 启动服务
 echo "🚀 启动服务..."
 cd "$SCRIPT_DIR"
 docker-compose up -d
 cd "$ROOT_DIR"
 
-# 6. 获取本机 IP
+# 5. 获取本机 IP
 LOCAL_IP=$(ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1)
 
 echo ""

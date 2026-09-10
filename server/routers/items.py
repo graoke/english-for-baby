@@ -2,7 +2,6 @@
 
 import json
 import logging
-from pathlib import Path
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +9,7 @@ from sqlmodel import Session, select
 
 from ..database import engine, DATA_DIR
 from ..models import DrillItem, Lesson, SourceType, ContentType
+from ..schemas import DrillItemCreate, DrillItemUpdate, BatchCreateItems
 
 logger = logging.getLogger("peppa.items")
 
@@ -49,16 +49,16 @@ def list_items(lesson_id: int = None, session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=dict)
-def create_item(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
+def create_item(body: DrillItemCreate, session: Session = Depends(get_session), _=Depends(require_parent)):
     item = DrillItem(
-        source_type=body.get("source_type", SourceType.manual),
-        lesson_id=body.get("lesson_id"),
-        page_no=body.get("page_no", 0),
-        content_type=body.get("content_type", ContentType.sentence),
-        text=body["text"],
-        text_zh=body.get("text_zh"),
-        image_path=body.get("image_path"),
-        difficulty=body.get("difficulty", 1),
+        source_type=body.source_type,
+        lesson_id=body.lesson_id,
+        page_no=body.page_no,
+        content_type=body.content_type,
+        text=body.text,
+        text_zh=body.text_zh,
+        image_path=body.image_path,
+        difficulty=body.difficulty,
     )
     session.add(item)
 
@@ -76,10 +76,10 @@ def create_item(body: dict, session: Session = Depends(get_session), _=Depends(r
 
 
 @router.post("/batch", response_model=dict)
-def batch_create_items(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
-    """Batch create items from multiline text. body: {lesson_id, lines: [{text, text_zh?}]}"""
-    lesson_id = body["lesson_id"]
-    lines = body["lines"]
+def batch_create_items(body: BatchCreateItems, session: Session = Depends(get_session), _=Depends(require_parent)):
+    """Batch create items from multiline text."""
+    lesson_id = body.lesson_id
+    lines = body.lines
 
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
@@ -93,9 +93,9 @@ def batch_create_items(body: dict, session: Session = Depends(get_session), _=De
             lesson_id=lesson_id,
             page_no=start_no + i + 1,
             content_type=ContentType.sentence,
-            text=line["text"],
-            text_zh=line.get("text_zh"),
-            difficulty=line.get("difficulty", 1),
+            text=line.text,
+            text_zh=line.text_zh,
+            difficulty=line.difficulty,
         )
         session.add(item)
         created.append(item.id)
@@ -109,17 +109,16 @@ def batch_create_items(body: dict, session: Session = Depends(get_session), _=De
 
 
 @router.put("/{item_id}", response_model=dict)
-def update_item(item_id: int, body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
+def update_item(item_id: int, body: DrillItemUpdate, session: Session = Depends(get_session), _=Depends(require_parent)):
     item = session.get(DrillItem, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
-    for key in ("text", "text_zh", "image_path", "tts_path", "difficulty",
-                "page_no", "content_type", "enabled", "tags"):
-        if key in body:
-            if key == "tags" and isinstance(body[key], (list, dict)):
-                setattr(item, key, json.dumps(body[key]))
-            else:
-                setattr(item, key, body[key])
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if key == "tags" and isinstance(value, (list, dict)):
+            setattr(item, key, json.dumps(value))
+        else:
+            setattr(item, key, value)
     session.add(item)
     session.commit()
     logger.info("Item updated: id=%d", item_id)
@@ -147,7 +146,7 @@ def delete_item(item_id: int, session: Session = Depends(get_session), _=Depends
 
 
 @router.post("/{item_id}/generate-tts", response_model=dict)
-async def generate_tts(item_id: int, session: Session = Depends(get_session)):
+async def generate_tts(item_id: int, session: Session = Depends(get_session), _=Depends(require_parent)):
     """Generate TTS audio for a single drill item."""
     item = session.get(DrillItem, item_id)
     if not item:
@@ -182,7 +181,7 @@ async def generate_tts(item_id: int, session: Session = Depends(get_session)):
 
 
 @router.post("/lesson/{lesson_id}/generate-tts", response_model=dict)
-async def generate_lesson_tts(lesson_id: int, session: Session = Depends(get_session)):
+async def generate_lesson_tts(lesson_id: int, session: Session = Depends(get_session), _=Depends(require_parent)):
     """Generate TTS for all items in a lesson."""
     lesson = session.get(Lesson, lesson_id)
     if not lesson:

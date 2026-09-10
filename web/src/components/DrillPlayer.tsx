@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Confetti from './Confetti'
+import { startRecording, uploadRecording } from '../utils/recording'
 
 interface DrillItem {
   id: number; page_no: number; content_type: string
@@ -9,25 +10,6 @@ interface DrillItem {
 
 interface Props {
   lessonId: number; lessonTitle: string; showText: boolean; onBack: () => void
-}
-
-// 检测是否支持 WebM 格式
-function isWebMSupported(): boolean {
-  if (typeof MediaRecorder === 'undefined') return false
-  return MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-}
-
-// 检测是否支持 MP4 格式
-function isMP4Supported(): boolean {
-  if (typeof MediaRecorder === 'undefined') return false
-  return MediaRecorder.isTypeSupported('audio/mp4')
-}
-
-// 获取支持的 MIME 类型
-function getSupportedMimeType(): string {
-  if (isWebMSupported()) return 'audio/webm;codecs=opus'
-  if (isMP4Supported()) return 'audio/mp4'
-  return ''
 }
 
 export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }: Props) {
@@ -45,14 +27,19 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
   const [lastRecordingUrl, setLastRecordingUrl] = useState<string | null>(null)
   const [showPlayback, setShowPlayback] = useState(false)
   const mediaRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
+  const recordingItemRef = useRef<number | null>(null)
 
   const touchStartX = useRef(0)
   const touchStartY = useRef(0)
 
+  // Cleanup object URLs to prevent memory leaks
+  useEffect(() => {
+    return () => { if (lastRecordingUrl) URL.revokeObjectURL(lastRecordingUrl) }
+  }, [lastRecordingUrl])
+
   useEffect(() => {
     fetch(`/api/lessons/${lessonId}`)
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json() })
       .then(data => { setItems(data.items || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [lessonId])
@@ -93,65 +80,33 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
     }
   }
 
-  // Recording controls
-  const startTimeRef = useRef<number>(0)
-  
   const startRecording = async () => {
     try {
       setError(null)
-      
-      // 检查浏览器支持
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setError('浏览器不支持录音（需要 HTTPS 或 localhost）')
-        return
-      }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      
-      // 获取支持的 MIME 类型
-      const mimeType = getSupportedMimeType()
-      const recorderOptions: MediaRecorderOptions = {}
-      if (mimeType) {
-        recorderOptions.mimeType = mimeType
-      }
-      
-      const recorder = new MediaRecorder(stream, recorderOptions)
-      chunksRef.current = []
-      startTimeRef.current = Date.now()
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
-        const durationMs = Date.now() - startTimeRef.current
-        setLastRecordingUrl(URL.createObjectURL(blob))
-        setRecordingState('idle')
-        setShowConfetti(true)
-        setStickerCount(c => c + 1)
-        setShowPlayback(true)
-        setTimeout(() => setShowConfetti(false), 1500)
-        // Fire-and-forget upload + ASR in background
-        const fd = new FormData()
-        fd.append('file', blob, `recording.${recorder.mimeType?.includes('mp4') ? 'mp4' : 'webm'}`)
-        fetch(`/api/attempts?drill_item_id=${currentItem.id}&duration_ms=${durationMs}`, { method: 'POST', body: fd })
-          .catch(e => console.error('Upload failed:', e))
-      }
-      recorder.onerror = (e) => {
-        console.error('MediaRecorder error:', e)
-        stream.getTracks().forEach(t => t.stop())
-        setError('录音出错，请重试')
-        setRecordingState('idle')
-      }
-      mediaRef.current = recorder
-      recorder.start()
+      const result = await startRecording({
+        onRecordingComplete: ({ blob, durationMs }) => {
+          setLastRecordingUrl(URL.createObjectURL(blob))
+          setRecordingState('idle')
+          setShowConfetti(true)
+          setStickerCount(c => c + 1)
+          setShowPlayback(true)
+          setTimeout(() => setShowConfetti(false), 1500)
+          const itemId = recordingItemRef.current
+          if (itemId != null) uploadRecording(blob, itemId, durationMs)
+        },
+        onError: (msg) => {
+          setError(msg)
+          setRecordingState('idle')
+        },
+      })
+      if (!result) return
+      mediaRef.current = result.recorder
+      recordingItemRef.current = currentItem.id
       setRecordingState('recording')
       setShowPlayback(false)
     } catch (err: any) {
       console.error('Microphone access denied:', err)
-      if (err.name === 'NotAllowedError') {
-        setError('请允许麦克风访问权限')
-      } else {
-        setError('无法访问麦克风')
-      }
+      setError(err.name === 'NotAllowedError' ? '请允许麦克风访问权限' : '无法访问麦克风')
     }
   }
 

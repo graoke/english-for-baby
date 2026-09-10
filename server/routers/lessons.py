@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from ..database import engine
 from ..models import Lesson, DrillItem
+from ..schemas import LessonCreate, LessonUpdate
 
 router = APIRouter(prefix="/api/lessons", tags=["lessons"])
 
@@ -38,11 +39,11 @@ def list_lessons(session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=dict)
-def create_lesson(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
+def create_lesson(body: LessonCreate, session: Session = Depends(get_session), _=Depends(require_parent)):
     lesson = Lesson(
-        title=body["title"],
-        cover=body.get("cover"),
-        order_no=body.get("order_no", 0),
+        title=body.title,
+        cover=body.cover,
+        order_no=body.order_no,
     )
     session.add(lesson)
     session.commit()
@@ -82,13 +83,13 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
 
 
 @router.put("/{lesson_id}", response_model=dict)
-def update_lesson(lesson_id: int, body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
+def update_lesson(lesson_id: int, body: LessonUpdate, session: Session = Depends(get_session), _=Depends(require_parent)):
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
-    for key in ("title", "cover", "order_no", "enabled"):
-        if key in body:
-            setattr(lesson, key, body[key])
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(lesson, key, value)
     session.add(lesson)
     session.commit()
     return {"ok": True}

@@ -22,6 +22,8 @@ router = APIRouter(prefix="/api/attempts", tags=["attempts"])
 RECORDINGS_DIR = DATA_DIR / "recordings"
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+
 # Dedicated thread pool for CPU-heavy ASR — keeps the main event loop responsive.
 _executor = ThreadPoolExecutor(max_workers=4)
 
@@ -29,6 +31,9 @@ _executor = ThreadPoolExecutor(max_workers=4)
 def get_session():
     with Session(engine) as session:
         yield session
+
+
+from .settings import require_parent
 
 
 def _run_asr(filepath: str, target_text: str) -> dict:
@@ -58,7 +63,7 @@ def _run_asr(filepath: str, target_text: str) -> dict:
 
 
 @router.get("", response_model=List[dict])
-def list_attempts(drill_item_id: int = None, session: Session = Depends(get_session)):
+def list_attempts(drill_item_id: int = None, session: Session = Depends(get_session), _=Depends(require_parent)):
     q = select(Attempt)
     if drill_item_id is not None:
         q = q.where(Attempt.drill_item_id == drill_item_id)
@@ -84,6 +89,7 @@ async def create_attempt(
     file: UploadFile = File(...),
     duration_ms: int = 0,
     session: Session = Depends(get_session),
+    _=Depends(require_parent),
 ):
     """Upload recording, run comparison in background thread, save attempt.
 
@@ -98,6 +104,8 @@ async def create_attempt(
     filename = f"{uuid.uuid4().hex}{ext}"
     filepath = RECORDINGS_DIR / filename
     content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(413, f"文件大小超过限制（最大 {MAX_UPLOAD_SIZE // 1024 // 1024}MB）")
     with open(filepath, "wb") as f:
         f.write(content)
     t_saved = time.time() - t_start

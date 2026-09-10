@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { AppSettings } from '../App'
-import { authFetch } from '../utils/authFetch'
+import { authFetch, getSessionToken } from '../utils/authFetch'
 
 type Tab = 'list' | 'edit' | 'history' | 'weak' | 'settings'
 
@@ -325,6 +325,26 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
 }
 
 /* ==================== Practice History ==================== */
+
+// Frontend normalize: lowercase, expand contractions, strip punctuation, remove fillers
+const FILLERS = new Set(["uh","um","er","ah","eh","mm","hmm","mhm","mmhmm","uhhuh","oh","huh","yeah","yep","yup","ok","okay","hm","ahh","uhm","erm","ehm","mmmm","uhuh","huhuh"])
+const CONTRACTIONS: Record<string, string> = {
+  "don't":"do not","doesn't":"does not","didn't":"did not","can't":"cannot","won't":"will not",
+  "isn't":"is not","aren't":"are not","wasn't":"was not","weren't":"were not","hasn't":"has not",
+  "haven't":"have not","hadn't":"had not","couldn't":"could not","wouldn't":"would not","shouldn't":"should not",
+  "it's":"it is","i'm":"i am","you're":"you are","we're":"we are","they're":"they are",
+  "i've":"i have","you've":"you have","we've":"we have","they've":"they have",
+  "i'll":"i will","you'll":"you will","he'll":"he will","she'll":"she will","we'll":"we will","they'll":"they will",
+  "i'd":"i would","you'd":"you would","he'd":"he would","she'd":"she would","we'd":"we would","they'd":"they would",
+  "that's":"that is","who's":"who is","what's":"what is","where's":"where is","when's":"when is","how's":"how is",
+}
+function frontendNormalize(text: string): string[] {
+  let t = text.toLowerCase().trim()
+  for (const [c, e] of Object.entries(CONTRACTIONS)) t = t.replace(c, e)
+  t = t.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  return t.split(' ').filter(w => w && !FILLERS.has(w))
+}
+
 function HistoryAttemptRow({ attempt }: { attempt: any }) {
   const [playing, setPlaying] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -334,7 +354,7 @@ function HistoryAttemptRow({ attempt }: { attempt: any }) {
       audioRef.current.pause()
       setPlaying(false)
     } else {
-      const a = new Audio(`/data/recordings/${attempt.audio_path}`)
+      const a = new Audio(`/data/recordings/${attempt.audio_path}?token=${getSessionToken() || ''}`)
       a.onended = () => setPlaying(false)
       a.play()
       audioRef.current = a
@@ -342,10 +362,13 @@ function HistoryAttemptRow({ attempt }: { attempt: any }) {
     }
   }
 
-  const hitWords = (() => {
+  const hitWords: string[] = (() => {
     try { return JSON.parse(attempt.hit_words || '[]') } catch { return [] }
   })()
   const score = Math.round((attempt.hit_ratio ?? 0) * 100)
+  const targetWords = frontendNormalize(attempt.text || '')
+  const hitSet = new Set(hitWords)
+  const missedWords = targetWords.filter(w => !hitSet.has(w))
 
   return (
     <div style={{ ...S.weakCard, marginBottom: 8, padding: '10px 12px' }}>
@@ -365,19 +388,21 @@ function HistoryAttemptRow({ attempt }: { attempt: any }) {
             {attempt.asr_text}
           </div>
         )}
-        {hitWords.length > 0 && (
-          <div style={{ fontSize: '0.75rem', color: '#27ae60', marginBottom: 4 }}>
-            Matched: {hitWords.join(', ')}
-          </div>
-        )}
+        <div style={{ fontSize: '0.75rem', marginBottom: 4 }}>
+          <span style={{ color: '#27ae60', fontWeight: 600 }}>
+            读出 {hitWords.length} / {targetWords.length} 个词
+          </span>
+          {missedWords.length > 0 && (
+            <span style={{ color: '#c0392b', marginLeft: 8 }}>
+              漏读：{missedWords.join(', ')}
+            </span>
+          )}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.75rem', color: '#b89a6a' }}>
           <span>{attempt.time}</span>
           <span>·</span>
           <span style={{ ...S.hitBadge, background: score >= 80 ? '#d4edda' : score >= 50 ? '#fff3cd' : '#f8d7da', color: score >= 80 ? '#155724' : score >= 50 ? '#856404' : '#721c24' }}>
             {score}%
-          </span>
-          <span style={{ padding: '1px 6px', borderRadius: 8, background: attempt.mode === 'assessed' ? '#e8f5e9' : '#e3f2fd', color: attempt.mode === 'assessed' ? '#2e7d32' : '#1565c0', fontSize: '0.7rem', fontWeight: 600 }}>
-            {attempt.mode}
           </span>
         </div>
       </div>
@@ -614,7 +639,7 @@ function WeakSentences() {
             </div>
             {w.audio_path && (
               <div style={S.weakAudio}>
-                <button style={S.weakPlayBtn} onClick={() => new Audio(`/data/recordings/${w.audio_path}`).play()}>
+                <button style={S.weakPlayBtn} onClick={() => new Audio(`/data/recordings/${w.audio_path}?token=${getSessionToken() || ''}`).play()}>
                   ▶
                 </button>
               </div>

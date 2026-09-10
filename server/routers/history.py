@@ -2,7 +2,7 @@
 
 import json
 import random
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select, func, col
@@ -29,41 +29,73 @@ def get_practice_history(
     _=Depends(require_parent),
 ):
     """Return practice history grouped by lesson, with pagination."""
-    # Fetch all attempts with joined item + lesson info
-    stmt = (
-        select(Attempt, DrillItem, Lesson)
-        .join(DrillItem, Attempt.drill_item_id == DrillItem.id)
-        .join(Lesson, DrillItem.lesson_id == Lesson.id)
-        .order_by(Attempt.created_at.desc())
-    )
-    rows = session.exec(stmt).all()
-
-    # Group by (lesson_id, date) to create sessions
-    from collections import OrderedDict
     from datetime import datetime
+    from sqlalchemy import func, literal_column
 
+    # Step 1: Get distinct (lesson_id, date) groups with counts, paginated
+    group_stmt = (
+        select(
+            DrillItem.lesson_id,
+            func.date(Attempt.created_at).label("day"),
+            func.count(Attempt.id).label("total_attempts"),
+            func.min(Attempt.created_at).label("first_time"),
+            func.max(Attempt.created_at).label("last_time"),
+        )
+        .join(DrillItem, Attempt.drill_item_id == DrillItem.id)
+        .group_by(DrillItem.lesson_id, func.date(Attempt.created_at))
+        .order_by(func.max(Attempt.created_at).desc())
+    )
+    # Get total count of groups
+    from sqlalchemy import select as sa_select
+    count_stmt = sa_select(func.count()).select_from(group_stmt.subquery())
+    total = session.exec(count_stmt).one()
+
+    # Paginate groups
+    offset = (page - 1) * page_size
+    groups = session.exec(group_stmt.offset(offset).limit(page_size)).all()
+
+    if not groups:
+        return {"items": [], "total": total, "page": page, "page_size": page_size}
+
+    # Step 2: For each group, fetch the detailed sentences
+    from collections import OrderedDict
     sessions = OrderedDict()
 
-    for attempt, item, lesson in rows:
-        date_str = attempt.created_at.strftime("%Y-%m-%d %H:%M")
-        date_day = attempt.created_at.strftime("%Y-%m-%d")
-        key = (lesson.id, date_day)
+    # Build a set of (lesson_id, date) keys for the current page
+    group_keys = set()
+    for g in groups:
+        key = (g.lesson_id, str(g.day))
+        group_keys.add(key)
+        lesson = session.get(Lesson, g.lesson_id)
+        sessions[key] = {
+            "lesson_id": g.lesson_id,
+            "lesson_title": lesson.title if lesson else "",
+            "date": str(g.day),
+            "first_time": g.first_time.strftime("%Y-%m-%d %H:%M") if g.first_time else "",
+            "last_time": g.last_time.strftime("%Y-%m-%d %H:%M") if g.last_time else "",
+            "total_attempts": g.total_attempts,
+            "sentences": {},
+        }
 
-        if key not in sessions:
-            sessions[key] = {
-                "lesson_id": lesson.id,
-                "lesson_title": lesson.title,
-                "date": date_day,
-                "first_time": date_str,
-                "last_time": date_str,
-                "sentences": {},
-                "total_attempts": 0,
-            }
+    # Fetch all attempts for these groups in one query
+    lesson_ids = [g.lesson_id for g in groups]
+    date_strings = [str(g.day) for g in groups]
 
-        s = sessions[key]
-        s["total_attempts"] += 1
-        s["last_time"] = date_str
+    detail_stmt = (
+        select(Attempt, DrillItem)
+        .join(DrillItem, Attempt.drill_item_id == DrillItem.id)
+        .where(DrillItem.lesson_id.in_(lesson_ids))
+        .order_by(Attempt.created_at.desc())
+    )
+    detail_rows = session.exec(detail_stmt).all()
 
+    for attempt, item in detail_rows:
+        date_day = attempt.created_at.strftime("%Y-%m-%d") if attempt.created_at else ""
+        key = (item.lesson_id, date_day)
+        if key not in group_keys:
+            continue
+
+        date_str = attempt.created_at.strftime("%Y-%m-%d %H:%M") if attempt.created_at else ""
         hit_words = None
         if attempt.hit_words:
             try:
@@ -71,7 +103,7 @@ def get_practice_history(
             except Exception:
                 pass
 
-        s["sentences"][item.id] = {
+        sessions[key]["sentences"][item.id] = {
             "item_id": item.id,
             "text": item.text,
             "text_zh": item.text_zh,
@@ -84,7 +116,7 @@ def get_practice_history(
             "time": date_str,
         }
 
-    # Convert to list and flatten sentences
+    # Flatten sentences
     all_sessions = []
     for s in sessions.values():
         sentence_list = list(s["sentences"].values())
@@ -100,11 +132,8 @@ def get_practice_history(
             "sentences": sentence_list,
         })
 
-    total = len(all_sessions)
-    start = (page - 1) * page_size
-    end = start + page_size
     return {
-        "items": all_sessions[start:end],
+        "items": all_sessions,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -236,6 +265,7 @@ def get_weak_sentences(
 def get_challenge_sentences(
     count: int = Query(5, description="Number of weak sentences to return"),
     session: Session = Depends(get_session),
+    _=Depends(require_parent),
 ):
     """Return random weak sentences for child's challenge mode.
     Fixed N+1: use single query with window function.
