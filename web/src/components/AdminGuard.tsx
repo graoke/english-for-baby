@@ -5,6 +5,18 @@ interface Props {
   children: React.ReactNode
 }
 
+async function pbkdf2(pin: string, salt: string): Promise<string> {
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+  )
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(salt), iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, 256
+  )
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 async function sha256(msg: string): Promise<string> {
   const data = new TextEncoder().encode(msg)
   const hash = await crypto.subtle.digest('SHA-256', data)
@@ -70,8 +82,8 @@ export default function AdminGuard({ children }: Props) {
       if (!challengeRes.ok) throw new Error('认证失败')
       const { challenge, salt } = await challengeRes.json()
 
-      // 2. Compute proof: h = sha256(challenge + sha256(salt + pin))
-      const hashPin = await sha256(salt + pin)
+      // 2. Compute proof: h = sha256(challenge + pbkdf2(pin, salt))
+      const hashPin = await pbkdf2(pin, salt)
       const h = await sha256(challenge + hashPin)
 
       // 3. Send proof

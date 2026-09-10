@@ -31,7 +31,9 @@ CHALLENGE_TTL = 60
 
 
 def _hash_pin(pin: str, salt: str) -> str:
-    return hashlib.sha256((salt + pin).encode()).hexdigest()
+    """PBKDF2-SHA256 加盐哈希，100k 迭代防暴力破解。"""
+    dk = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt.encode(), 100000)
+    return dk.hex()
 
 
 def _create_session() -> str:
