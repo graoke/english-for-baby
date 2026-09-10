@@ -81,6 +81,12 @@ def get_settings(session: Session = Depends(get_session)):
     return {r.key: r.value for r in rows if r.key not in SENSITIVE_KEYS}
 
 
+@router.get("/auth/validate", response_model=dict)
+def validate_token(_=Depends(require_parent)):
+    """验证 session token 是否有效。前端用于检测登录状态。"""
+    return {"ok": True}
+
+
 @router.put("", response_model=dict)
 def update_settings(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     for key, value in body.items():
@@ -110,20 +116,35 @@ def get_pin_status(session: Session = Depends(get_session)):
 @router.post("/pin", response_model=dict)
 def set_pin(body: dict, session: Session = Depends(get_session)):
     pin = body.get("pin", "")
+    old_pin = body.get("old_pin")
+    
     if len(pin) < 4:
         raise HTTPException(400, "PIN 至少 4 位")
 
+    # Check if PIN already exists
+    row_pin = session.exec(select(Settings).where(Settings.key == "parent_pin")).first()
+    row_salt = session.exec(select(Settings).where(Settings.key == "parent_pin_salt")).first()
+    
+    if row_pin and row_pin.value:
+        # PIN exists — require old_pin to verify
+        if not old_pin:
+            raise HTTPException(400, "需要提供旧 PIN")
+        if not row_salt or not row_salt.value:
+            raise HTTPException(500, "服务端配置错误")
+        old_hash = _hash_pin(old_pin, row_salt.value)
+        if not hmac.compare_digest(old_hash, row_pin.value):
+            raise HTTPException(401, "旧 PIN 错误")
+    
+    # Set new PIN
     salt = secrets.token_hex(16)
     pin_hash = _hash_pin(pin, salt)
 
-    row_pin = session.exec(select(Settings).where(Settings.key == "parent_pin")).first()
     if row_pin:
         row_pin.value = pin_hash
     else:
         row_pin = Settings(key="parent_pin", value=pin_hash)
     session.add(row_pin)
 
-    row_salt = session.exec(select(Settings).where(Settings.key == "parent_pin_salt")).first()
     if row_salt:
         row_salt.value = salt
     else:

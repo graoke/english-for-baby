@@ -36,7 +36,8 @@ def _get_model():
         else:
             # 传模型名，faster-whisper 会自动下载
             # download_root 指定下载目录，避免散落各处
-            download_root = str(Path(__file__).parent.parent.parent / "data" / "models")
+            default_models = str(Path(__file__).parent.parent.parent / "data" / "models")
+            download_root = os.environ.get("WHISPER_MODEL_PATH", default_models)
             Path(download_root).mkdir(parents=True, exist_ok=True)
             logger.info("Loading whisper model: small (cpu, int8), download_root=%s", download_root)
             _model = WhisperModel("small", device="cpu", compute_type="int8", download_root=download_root)

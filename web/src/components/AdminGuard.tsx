@@ -1,25 +1,8 @@
 import { useState, useEffect } from 'react'
-
-const TOKEN_KEY = 'peppa_session_token'
+import { authFetch, setToken, clearToken, getSessionToken } from '../utils/authFetch'
 
 interface Props {
   children: React.ReactNode
-}
-
-function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_KEY)
-}
-
-function setToken(token: string) {
-  sessionStorage.setItem(TOKEN_KEY, token)
-}
-
-function clearToken() {
-  sessionStorage.removeItem(TOKEN_KEY)
-}
-
-export function getSessionToken(): string | null {
-  return getToken()
 }
 
 async function sha256(msg: string): Promise<string> {
@@ -37,11 +20,10 @@ export default function AdminGuard({ children }: Props) {
   const [isSettingPin, setIsSettingPin] = useState(false)
 
   useEffect(() => {
-    const token = getToken()
+    const token = getSessionToken()
     if (token) {
-      fetch('/api/settings', {
-        headers: { 'X-Session-Token': token }
-      }).then(r => {
+      // Validate token against real auth endpoint
+      authFetch('/api/settings/auth/validate').then(r => {
         if (r.ok) setIsAuthenticated(true)
         else { clearToken(); checkPinStatus() }
         setLoading(false)
@@ -79,16 +61,16 @@ export default function AdminGuard({ children }: Props) {
 
   const handleVerifyPin = async () => {
     try {
-      // 1. 获取 challenge + salt
+      // 1. Get challenge + salt
       const challengeRes = await fetch('/api/settings/pin/challenge', { method: 'POST' })
       if (!challengeRes.ok) throw new Error('认证失败')
       const { challenge, salt } = await challengeRes.json()
 
-      // 2. 计算 proof: h = sha256(challenge + sha256(salt + pin))
+      // 2. Compute proof: h = sha256(challenge + sha256(salt + pin))
       const hashPin = await sha256(salt + pin)
       const h = await sha256(challenge + hashPin)
 
-      // 3. 发送 proof
+      // 3. Send proof
       const verifyRes = await fetch('/api/settings/pin/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,7 +90,7 @@ export default function AdminGuard({ children }: Props) {
   }
 
   const handleLogout = () => {
-    const token = getToken()
+    const token = getSessionToken()
     if (token) {
       fetch('/api/settings/pin/logout', {
         method: 'POST',

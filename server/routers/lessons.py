@@ -16,6 +16,9 @@ def get_session():
         yield session
 
 
+from .settings import require_parent
+
+
 @router.get("", response_model=List[dict])
 def list_lessons(session: Session = Depends(get_session)):
     lessons = session.exec(
@@ -35,7 +38,7 @@ def list_lessons(session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=dict)
-def create_lesson(body: dict, session: Session = Depends(get_session)):
+def create_lesson(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     lesson = Lesson(
         title=body["title"],
         cover=body.get("cover"),
@@ -80,7 +83,7 @@ def get_lesson(lesson_id: int, session: Session = Depends(get_session)):
 
 
 @router.put("/{lesson_id}", response_model=dict)
-def update_lesson(lesson_id: int, body: dict, session: Session = Depends(get_session)):
+def update_lesson(lesson_id: int, body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
@@ -93,7 +96,7 @@ def update_lesson(lesson_id: int, body: dict, session: Session = Depends(get_ses
 
 
 @router.post("/{lesson_id}/recount", response_model=dict)
-def recount_lesson(lesson_id: int, session: Session = Depends(get_session)):
+def recount_lesson(lesson_id: int, session: Session = Depends(get_session), _=Depends(require_parent)):
     """Recalculate page_count from actual enabled items."""
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
@@ -108,7 +111,7 @@ def recount_lesson(lesson_id: int, session: Session = Depends(get_session)):
 
 
 @router.delete("/{lesson_id}")
-def delete_lesson(lesson_id: int, session: Session = Depends(get_session)):
+def delete_lesson(lesson_id: int, session: Session = Depends(get_session), _=Depends(require_parent)):
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")

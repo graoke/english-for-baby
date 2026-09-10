@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { AppSettings } from '../App'
+import { authFetch } from '../utils/authFetch'
 
 type Tab = 'list' | 'edit' | 'history' | 'weak' | 'settings'
 
@@ -113,7 +114,7 @@ function AppSettingsPanel({ settings, onUpdate }: { settings: AppSettings; onUpd
 function LessonList({ onEdit, onCreate }: { onEdit: (id: number) => void; onCreate: () => void }) {
   const [lessons, setLessons] = useState<any[]>([])
   const [loaded, setLoaded] = useState(false)
-  const load = () => fetch('/api/lessons').then(r => r.json()).then(d => { setLessons(d); setLoaded(true) })
+  const load = () => authFetch('/api/lessons').then(r => r.json()).then(d => { setLessons(d); setLoaded(true) })
   useEffect(() => { if (!loaded) load() }, [])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -145,7 +146,7 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
 
   useEffect(() => {
     if (lessonId) {
-      fetch(`/api/lessons/${lessonId}`).then(r => r.json()).then(data => {
+      authFetch(`/api/lessons/${lessonId}`).then(r => r.json()).then(data => {
         setTitle(data.title)
         setItems((data.items || []).map((i: any) => ({ id: i.id, text: i.text, text_zh: i.text_zh || '', image_path: i.image_path, tts_path: i.tts_path, content_type: i.content_type || 'sentence' })))
         setLoaded(true)
@@ -180,7 +181,7 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
 
   const uploadImage = async (idx: number, file: File) => {
     const fd = new FormData(); fd.append('file', file)
-    const res = await fetch('/api/upload/image', { method: 'POST', body: fd })
+    const res = await authFetch('/api/upload/image', { method: 'POST', body: fd })
     const data = await res.json()
     updateItem(idx, 'image_path', data.filename)
   }
@@ -198,16 +199,16 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
       if (!itemId) {
         if (!lessonId) {
           // Save lesson first
-          const lr = await fetch('/api/lessons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title || 'Untitled' }) })
+          const lr = await authFetch('/api/lessons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title || 'Untitled' }) })
           const ld = await lr.json(); lessonId = ld.id
         }
         const body = { text: item.text, text_zh: item.text_zh || null, image_path: item.image_path, content_type: item.content_type, page_no: idx + 1, source_type: 'manual', lesson_id: lessonId }
-        const ir = await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const ir = await authFetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const idata = await ir.json(); itemId = idata.id
         updateItem(idx, 'id', itemId)
       }
       // Generate TTS and get tts_path from response
-      const res = await fetch(`/api/items/${itemId}/generate-tts`, { method: 'POST' })
+      const res = await authFetch(`/api/items/${itemId}/generate-tts`, { method: 'POST' })
       const data = await res.json()
       if (data.tts_path) {
         updateItem(idx, 'tts_path', data.tts_path)
@@ -223,20 +224,20 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
     try {
       let lid = lessonId
       if (lid) {
-        await fetch(`/api/lessons/${lid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+        await authFetch(`/api/lessons/${lid}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
       } else {
-        const res = await fetch('/api/lessons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+        const res = await authFetch('/api/lessons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
         const data = await res.json(); lid = data.id
       }
       const visible = items.filter(i => !i._removed)
       for (let idx = 0; idx < visible.length; idx++) {
         const item = visible[idx]
         const body = { text: item.text, text_zh: item.text_zh || null, image_path: item.image_path, content_type: item.content_type, page_no: idx + 1, source_type: 'manual', lesson_id: lid }
-        if (item.id) { await fetch(`/api/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
-        else { await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+        if (item.id) { await authFetch(`/api/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
+        else { await authFetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }
       }
-      for (const item of items.filter(i => i._removed && i.id)) { await fetch(`/api/items/${item.id}`, { method: 'DELETE' }) }
-      if (lid) { await fetch(`/api/lessons/${lid}/recount`, { method: 'POST' }) }
+      for (const item of items.filter(i => i._removed && i.id)) { await authFetch(`/api/items/${item.id}`, { method: 'DELETE' }) }
+      if (lid) { await authFetch(`/api/lessons/${lid}/recount`, { method: 'POST' }) }
       showToast('Saved!')
       setTimeout(() => onDone(), 800)
     } catch (e) { showToast('Save failed: ' + String(e)) } finally { setSaving(false) }
@@ -335,7 +336,7 @@ function PracticeHistory() {
   const [endDate, setEndDate] = useState(today.toISOString().slice(0, 10))
 
   useEffect(() => {
-    fetch('/api/history/daily').then(r => r.json()).then(d => { setDaily(d); setLoaded(true) })
+    authFetch('/api/history/daily').then(r => r.json()).then(d => { setDaily(d); setLoaded(true) })
   }, [])
 
   const filtered = daily.filter(d => d.date >= startDate && d.date <= endDate)
@@ -452,7 +453,7 @@ function WeakSentences() {
   const [threshold, setThreshold] = useState(0.7)
 
   useEffect(() => {
-    fetch(`/api/history/weak?threshold=${threshold}`).then(r => r.json()).then(d => { setWeak(d); setLoaded(true) })
+    authFetch(`/api/history/weak?threshold=${threshold}`).then(r => r.json()).then(d => { setWeak(d); setLoaded(true) })
   }, [threshold])
 
   return (

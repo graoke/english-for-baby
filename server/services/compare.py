@@ -149,24 +149,28 @@ def compare(target: str, transcript: str) -> dict:
         }
 
     # Stage 2: MiniCPM 对遗漏的词做语音评估
-    minicpm_hit = list(hit)
+    minicpm_hit_words = list(hit)
     t0 = time.time()
     for w in missed:
         try:
             if _minicpm_judge(w, transcript):
-                minicpm_hit.append(w)
+                minicpm_hit_words.append(w)
         except Exception as e:
             logger.exception("MiniCPM judge exception for word %r", w)
 
-    final_ratio = len(minicpm_hit) / len(target_words)
-    new_missed = [w for w in target_words if w not in minicpm_hit]
+    # 用修正后的命中词重新计算序列对齐分数
+    transcript_set = set(minicpm_hit_words)
+    corrected_transcript = [w for w in transcript_words if w in transcript_set]
+    final_ratio = score(target_words, corrected_transcript)
+    
+    new_missed = [w for w in target_words if w not in transcript_set]
 
     logger.info("Final (%.2fs): hit=%s, missed=%s, ratio=%.3f, method=minicpm",
-                time.time() - t0, minicpm_hit, new_missed, final_ratio)
+                time.time() - t0, minicpm_hit_words, new_missed, final_ratio)
 
     return {
         "hit_ratio": round(final_ratio, 3),
-        "hit_words": minicpm_hit,
+        "hit_words": minicpm_hit_words,
         "missed_words": new_missed,
         "target_word_count": len(target_words),
         "method": "minicpm",
