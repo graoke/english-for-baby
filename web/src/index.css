@@ -20,3 +20,9 @@ body {
 }
 
 ::-webkit-scrollbar { display: none; }
+
+/* Show thin scrollbar for items list */
+.items-scroll::-webkit-scrollbar { display: block; width: 6px; }
+.items-scroll::-webkit-scrollbar-track { background: transparent; }
+.items-scroll::-webkit-scrollbar-thumb { background: #d4a574; border-radius: 3px; }
+.items-scroll::-webkit-scrollbar-thumb:hover { background: #c8943e; }

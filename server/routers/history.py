@@ -191,10 +191,10 @@ def get_weak_sentences(
 
     result = []
     for row in rows:
-        # Get the last attempt's audio for playback
+        # Get the last attempt's audio (child's recording) for playback
         last_attempt = session.exec(
             select(Attempt)
-            .where(Attempt.drill_item_id == row.drill_item_id, Attempt.hit_ratio.is_not(None))
+            .where(Attempt.drill_item_id == row.drill_item_id, Attempt.audio_path.is_not(None))
             .order_by(Attempt.created_at.desc())
             .limit(1)
         ).first()
@@ -203,9 +203,9 @@ def get_weak_sentences(
             "text": row.text,
             "text_zh": row.text_zh,
             "image_path": row.image_path,
+            "audio_path": last_attempt.audio_path if last_attempt else None,
             "avg_hit_ratio": round(float(row.avg_ratio), 3),
             "attempt_count": row.attempt_count,
-            "audio_path": last_attempt.audio_path if last_attempt else None,
         })
 
     return result
@@ -214,42 +214,60 @@ def get_weak_sentences(
 @router.get("/challenge", response_model=List[dict])
 def get_challenge_sentences(
     count: int = Query(5, description="Number of weak sentences to return"),
-    threshold: float = Query(0.7, description="Max avg hit_ratio"),
     session: Session = Depends(get_session),
 ):
     """Return random weak sentences for child's challenge mode.
 
-    Picks sentences with avg hit_ratio below threshold, weighted by weakness
-    (lower score = higher chance of being picked).
+    Picks sentences where the average of the LAST 3 recordings is below 70%.
+    Weighted by weakness (lower score = higher chance of being picked).
     """
-    subq = (
-        select(
-            Attempt.drill_item_id,
-            func.avg(Attempt.hit_ratio).label("avg_ratio"),
-        )
+    # Subquery: get last 3 attempts per drill_item
+    from sqlalchemy import func as sa_func, desc
+    
+    # Get drill_items that have at least 1 attempt
+    items_with_attempts = (
+        select(Attempt.drill_item_id)
         .where(Attempt.hit_ratio.is_not(None))
         .group_by(Attempt.drill_item_id)
-        .having(func.avg(Attempt.hit_ratio) < threshold)
     ).subquery()
-
-    stmt = (
-        select(subq.c.drill_item_id, subq.c.avg_ratio, DrillItem.text, DrillItem.text_zh, DrillItem.image_path, DrillItem.tts_path)
-        .join(DrillItem, DrillItem.id == subq.c.drill_item_id)
-        .where(DrillItem.enabled == True)
-    )
-    rows = session.exec(stmt).all()
-
-    if not rows:
+    
+    # For each item, get the avg of last 3 attempts
+    result_items = []
+    item_ids_list = session.exec(select(items_with_attempts.c.drill_item_id)).all()
+    for item_id in item_ids_list:
+        last_3 = session.exec(
+            select(Attempt.hit_ratio)
+            .where(Attempt.drill_item_id == item_id, Attempt.hit_ratio.is_not(None))
+            .order_by(Attempt.created_at.desc())
+            .limit(3)
+        ).all()
+        if last_3:
+            avg_recent = sum(last_3) / len(last_3)
+            if avg_recent < 0.7:  # Below 70%
+                result_items.append((item_id, avg_recent, len(last_3)))
+    
+    if not result_items:
         return []
-
+    
+    # Get item details
+    item_ids = [r[0] for r in result_items]
+    items = session.exec(
+        select(DrillItem).where(DrillItem.id.in_(item_ids), DrillItem.enabled == True)
+    ).all()
+    items_map = {item.id: item for item in items}
+    
     # Weight by weakness: lower score = higher weight
     items_pool = []
     weights = []
-    for row in rows:
-        weight = max(1, int((threshold - float(row.avg_ratio)) * 100))
-        items_pool.append(row)
-        weights.append(weight)
-
+    for item_id, avg_recent, attempt_count in result_items:
+        if item_id in items_map:
+            weight = max(1, int((0.7 - avg_recent) * 100))
+            items_pool.append((items_map[item_id], avg_recent))
+            weights.append(weight)
+    
+    if not items_pool:
+        return []
+    
     pick_count = min(count, len(items_pool))
     selected_indices = random.choices(range(len(items_pool)), weights=weights, k=pick_count)
     seen = set()
@@ -258,14 +276,14 @@ def get_challenge_sentences(
         if idx in seen:
             continue
         seen.add(idx)
-        row = items_pool[idx]
+        item, avg_recent = items_pool[idx]
         result.append({
-            "id": row.drill_item_id,
-            "text": row.text,
-            "text_zh": row.text_zh,
-            "image_path": row.image_path,
-            "tts_path": row.tts_path,
-            "avg_hit_ratio": round(float(row.avg_ratio), 3),
+            "id": item.id,
+            "text": item.text,
+            "text_zh": item.text_zh,
+            "image_path": item.image_path,
+            "tts_path": item.tts_path,
+            "avg_hit_ratio": round(float(avg_recent), 3),
         })
 
     random.shuffle(result)

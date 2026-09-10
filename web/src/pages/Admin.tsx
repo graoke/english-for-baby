@@ -11,21 +11,39 @@ interface AdminProps {
 export default function Admin({ settings, onUpdateSettings }: AdminProps) {
   const [tab, setTab] = useState<Tab>('list')
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   return (
     <div style={S.page}>
-      <h1 style={S.pageTitle}>👨‍👩‍👧 Parent Panel</h1>
-      <div style={S.tabBar}>
-        <button style={{ ...S.tab, ...(tab === 'list' ? S.tabActive : {}) }} onClick={() => setTab('list')}>Lessons</button>
-        <button style={{ ...S.tab, ...(tab === 'history' ? S.tabActive : {}) }} onClick={() => setTab('history')}>History</button>
-        <button style={{ ...S.tab, ...(tab === 'weak' ? S.tabActive : {}) }} onClick={() => setTab('weak')}>Weak Words</button>
-        <button style={{ ...S.tab, ...(tab === 'settings' ? S.tabActive : {}) }} onClick={() => setTab('settings')}>Settings</button>
+      {toast && <div style={S.toast}>{toast}</div>}
+      <button style={S.adminLink} onClick={() => window.dispatchEvent(new Event('open-picker'))}>🧒</button>
+      <div style={S.topBar}>
+        <div style={S.pageTitle}>👨‍👩‍👧 Parent Panel</div>
       </div>
-      {tab === 'list' && <LessonList onEdit={(id) => { setEditingId(id); setTab('edit') }} onCreate={() => { setEditingId(null); setTab('edit') }} />}
-      {tab === 'edit' && <LessonEditor lessonId={editingId} onDone={() => { setTab('list'); setEditingId(null) }} />}
-      {tab === 'history' && <PracticeHistory />}
-      {tab === 'weak' && <WeakSentences />}
-      {tab === 'settings' && <AppSettingsPanel settings={settings} onUpdate={onUpdateSettings} />}
+      <div style={S.layout}>
+        <div style={S.sidebar}>
+          {([
+            ['list', '📚 Lessons'],
+            ['history', '📊 History'],
+            ['weak', '⚠️ Weakness'],
+            ['settings', '⚙️ Settings'],
+          ] as [Tab, string][]).map(([key, label]) => (
+            <button key={key} style={tab === key ? S.tabActive : S.tab} onClick={() => setTab(key)}>{label}</button>
+          ))}
+        </div>
+        <div style={S.content}>
+          {tab === 'list' && <LessonList onEdit={(id) => { setEditingId(id); setTab('edit') }} onCreate={() => { setEditingId(null); setTab('edit') }} />}
+          {tab === 'edit' && <LessonEditor lessonId={editingId} onDone={() => { setTab('list'); setEditingId(null) }} showToast={showToast} />}
+          {tab === 'history' && <PracticeHistory />}
+          {tab === 'weak' && <WeakSentences />}
+          {tab === 'settings' && <AppSettingsPanel settings={settings} onUpdate={onUpdateSettings} />}
+        </div>
+      </div>
     </div>
   )
 }
@@ -33,11 +51,15 @@ export default function Admin({ settings, onUpdateSettings }: AdminProps) {
 /* ==================== Settings Panel ==================== */
 function AppSettingsPanel({ settings, onUpdate }: { settings: AppSettings; onUpdate: (p: Partial<AppSettings>) => void }) {
   const [checked, setChecked] = useState(settings.show_text)
-  const toggle = () => {
-    const next = !checked
-    setChecked(next)
-    onUpdate({ show_text: next })
+  const [ttsMode, setTtsMode] = useState(settings.tts_mode)
+  const [saved, setSaved] = useState(false)
+
+  const handleSave = () => {
+    onUpdate({ show_text: checked, tts_mode: ttsMode })
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
+
   return (
     <div>
       <div style={S.listTitle}>Display Settings</div>
@@ -47,7 +69,7 @@ function AppSettingsPanel({ settings, onUpdate }: { settings: AppSettings; onUpd
           <div style={S.settingHint}>If off, only image is shown (text hidden)</div>
         </div>
         <div
-          onClick={toggle}
+          onClick={() => setChecked(!checked)}
           style={{
             width: 48, height: 26, borderRadius: 13, cursor: 'pointer',
             background: checked ? '#d4a574' : '#e8dcc8',
@@ -63,6 +85,26 @@ function AppSettingsPanel({ settings, onUpdate }: { settings: AppSettings; onUpd
           }} />
         </div>
       </div>
+      <div style={S.listTitle}>TTS Settings</div>
+      <div style={S.settingRow}>
+        <div>
+          <div style={S.settingLabel}>TTS Model</div>
+          <div style={S.settingHint}>Local uses edge-tts, Tencent uses cloud API</div>
+        </div>
+        <select
+          style={S.thresholdSelect}
+          value={ttsMode}
+          onChange={e => setTtsMode(e.target.value as 'local' | 'tencent')}
+        >
+          <option value="local">Local (edge-tts)</option>
+          <option value="tencent">Tencent Cloud</option>
+        </select>
+      </div>
+      <div style={{ marginTop: 20, textAlign: 'center' }}>
+        <button style={S.primaryBtn} onClick={handleSave}>
+          {saved ? '✓ Saved' : 'Save Settings'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -74,18 +116,20 @@ function LessonList({ onEdit, onCreate }: { onEdit: (id: number) => void; onCrea
   const load = () => fetch('/api/lessons').then(r => r.json()).then(d => { setLessons(d); setLoaded(true) })
   useEffect(() => { if (!loaded) load() }, [])
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={S.listHeader}>
         <span style={S.listTitle}>Lessons</span>
         <button style={S.primaryBtn} onClick={onCreate}>+ New</button>
       </div>
-      {lessons.map(l => (
-        <div key={l.id} style={S.listItem}>
-          <div><div style={S.listItemTitle}>{l.title}</div><div style={S.listItemMeta}>{l.page_count} pages</div></div>
-          <button style={S.editBtn} onClick={() => onEdit(l.id)}>Edit</button>
-        </div>
-      ))}
-      {lessons.length === 0 && loaded && <div style={S.empty}>No lessons yet.</div>}
+      <div style={S.scrollContent} className="items-scroll">
+        {lessons.map(l => (
+          <div key={l.id} style={S.listItem}>
+            <div><div style={S.listItemTitle}>{l.title}</div><div style={S.listItemMeta}>{l.page_count} pages</div></div>
+            <button style={S.editBtn} onClick={() => onEdit(l.id)}>Edit</button>
+          </div>
+        ))}
+        {lessons.length === 0 && loaded && <div style={S.empty}>No lessons yet.</div>}
+      </div>
     </div>
   )
 }
@@ -93,13 +137,11 @@ function LessonList({ onEdit, onCreate }: { onEdit: (id: number) => void; onCrea
 /* ==================== Lesson Editor ==================== */
 interface ItemDraft { id: number | null; text: string; text_zh: string; image_path: string | null; tts_path: string | null; content_type: string; _removed?: boolean; _ttsLoading?: boolean }
 
-function LessonEditor({ lessonId, onDone }: { lessonId: number | null; onDone: () => void }) {
+function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null; onDone: () => void; showToast: (msg: string) => void }) {
   const [title, setTitle] = useState('')
   const [items, setItems] = useState<ItemDraft[]>([])
   const [saving, setSaving] = useState(false)
-  const [status, setStatus] = useState('')
   const [loaded, setLoaded] = useState(false)
-  const [generatingTts, setGeneratingTts] = useState(false)
 
   useEffect(() => {
     if (lessonId) {
@@ -115,6 +157,27 @@ function LessonEditor({ lessonId, onDone }: { lessonId: number | null; onDone: (
   const removeItem = (idx: number) => setItems(prev => prev.map((item, i) => i === idx ? { ...item, _removed: true } : item))
   const updateItem = (idx: number, field: string, value: any) => setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
 
+  // Drag and drop
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [overIdx, setOverIdx] = useState<number | null>(null)
+
+  const handleDragStart = (idx: number) => setDragIdx(idx)
+  const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); setOverIdx(idx) }
+  const handleDragEnd = () => { setDragIdx(null); setOverIdx(null) }
+  const handleDrop = (idx: number) => {
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setOverIdx(null); return }
+    setItems(prev => {
+      const visible = prev.filter(i => !i._removed)
+      const [moved] = visible.splice(dragIdx, 1)
+      visible.splice(idx, 0, moved)
+      // Rebuild full list preserving removed items
+      const removed = prev.filter(i => i._removed)
+      return [...visible, ...removed]
+    })
+    setDragIdx(null)
+    setOverIdx(null)
+  }
+
   const uploadImage = async (idx: number, file: File) => {
     const fd = new FormData(); fd.append('file', file)
     const res = await fetch('/api/upload/image', { method: 'POST', body: fd })
@@ -127,23 +190,36 @@ function LessonEditor({ lessonId, onDone }: { lessonId: number | null; onDone: (
   }
 
   const regenerateItemTts = async (idx: number, item: ItemDraft) => {
-    if (!item.id) return
+    if (!item.text.trim()) { showToast('Please enter text first.'); return }
     updateItem(idx, '_ttsLoading' as any, true)
     try {
-      await fetch(`/api/items/${item.id}/generate-tts`, { method: 'POST' })
-      // Re-fetch item to get new tts_path
-      const res = await fetch(`/api/lessons/${lessonId}`)
+      let itemId = item.id
+      // If item not saved yet, save it first
+      if (!itemId) {
+        if (!lessonId) {
+          // Save lesson first
+          const lr = await fetch('/api/lessons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title || 'Untitled' }) })
+          const ld = await lr.json(); lessonId = ld.id
+        }
+        const body = { text: item.text, text_zh: item.text_zh || null, image_path: item.image_path, content_type: item.content_type, page_no: idx + 1, source_type: 'manual', lesson_id: lessonId }
+        const ir = await fetch('/api/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const idata = await ir.json(); itemId = idata.id
+        updateItem(idx, 'id', itemId)
+      }
+      // Generate TTS and get tts_path from response
+      const res = await fetch(`/api/items/${itemId}/generate-tts`, { method: 'POST' })
       const data = await res.json()
-      const updated = data.items?.find((i: any) => i.id === item.id)
-      if (updated) updateItem(idx, 'tts_path', updated.tts_path)
-      setStatus(`TTS regenerated for "${item.text.slice(0, 20)}..."`)
-    } catch (e) { setStatus('TTS regeneration failed.') }
+      if (data.tts_path) {
+        updateItem(idx, 'tts_path', data.tts_path)
+      }
+      showToast(`TTS generated for "${item.text.slice(0, 20)}..."`)
+    } catch (e) { showToast('TTS generation failed.') }
     updateItem(idx, '_ttsLoading' as any, false)
   }
 
   const handleSave = async () => {
-    if (!title.trim()) { setStatus('Please enter a lesson title.'); return }
-    setSaving(true); setStatus('')
+    if (!title.trim()) { showToast('Please enter a lesson title.'); return }
+    setSaving(true)
     try {
       let lid = lessonId
       if (lid) {
@@ -161,52 +237,50 @@ function LessonEditor({ lessonId, onDone }: { lessonId: number | null; onDone: (
       }
       for (const item of items.filter(i => i._removed && i.id)) { await fetch(`/api/items/${item.id}`, { method: 'DELETE' }) }
       if (lid) { await fetch(`/api/lessons/${lid}/recount`, { method: 'POST' }) }
-      setStatus('Saved!'); setTimeout(() => onDone(), 800)
-    } catch (e) { setStatus('Save failed: ' + String(e)) } finally { setSaving(false) }
-  }
-
-  const handleGenerateTts = async () => {
-    if (!lessonId) return
-    setGeneratingTts(true)
-    try {
-      const res = await fetch(`/api/items/lesson/${lessonId}/generate-tts`, { method: 'POST' })
-      const data = await res.json()
-      setStatus(`Generated TTS for ${data.generated} items.`)
-      // Refresh items
-      const lr = await fetch(`/api/lessons/${lessonId}`)
-      const ld = await lr.json()
-      setItems((ld.items || []).map((i: any) => ({ id: i.id, text: i.text, text_zh: i.text_zh || '', image_path: i.image_path, tts_path: i.tts_path, content_type: i.content_type || 'sentence' })))
-    } catch (e) { setStatus('TTS generation failed.') }
-    setGeneratingTts(false)
+      showToast('Saved!')
+      setTimeout(() => onDone(), 800)
+    } catch (e) { showToast('Save failed: ' + String(e)) } finally { setSaving(false) }
   }
 
   if (!loaded) return <div style={S.loading}>Loading...</div>
   const visibleItems = items.filter(i => !i._removed)
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={S.editorHeader}>
         <button style={S.secondaryBtn} onClick={onDone}>← Back</button>
         <span style={S.editorTitle}>{lessonId ? 'Edit Lesson' : 'New Lesson'}</span>
         <div style={{ display: 'flex', gap: 8 }}>
-          {lessonId && <button style={S.ttsBtn} onClick={handleGenerateTts} disabled={generatingTts}>{generatingTts ? '⏳...' : '🔊 TTS All'}</button>}
           <button style={S.primaryBtn} onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
         </div>
       </div>
-      {status && <div style={{ ...S.status, color: status.includes('fail') ? '#c0392b' : '#27ae60' }}>{status}</div>}
       <div style={S.fieldGroup}>
         <label style={S.label}>Lesson Title</label>
         <input style={S.input} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Animals" />
       </div>
-      <div style={S.itemsSection}>
-        <div style={S.itemsHeader}>
-          <span style={S.itemsLabel}>Items ({visibleItems.length})</span>
-          <button style={S.addBtn} onClick={addItem}>+ Add Item</button>
-        </div>
+      <div style={S.itemsHeader}>
+        <span style={S.itemsLabel}>Items ({visibleItems.length})</span>
+        <button style={S.addBtn} onClick={addItem}>+ Add Item</button>
+      </div>
+      <div style={S.itemsScroll} className="items-scroll">
         {visibleItems.map((item, idx) => {
           const realIdx = items.indexOf(item)
           return (
-            <div key={realIdx} style={S.itemCard}>
+            <div
+              key={realIdx}
+              style={{
+                ...S.itemCard,
+                opacity: dragIdx === idx ? 0.5 : 1,
+                transform: overIdx === idx ? 'scale(1.02)' : 'scale(1)',
+                border: overIdx === idx ? '2px dashed #d4a574' : S.itemCard.border,
+              }}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragOver={(e) => handleDragOver(e, idx)}
+              onDragEnd={handleDragEnd}
+              onDrop={() => handleDrop(idx)}
+            >
+              <div style={S.dragHandle} title="Drag to reorder">⠿</div>
               <div style={S.itemNumber}>{idx + 1}</div>
               <div style={S.itemContent}>
                 {/* Image */}
@@ -228,17 +302,15 @@ function LessonEditor({ lessonId, onDone }: { lessonId: number | null; onDone: (
                   <input style={S.itemInput} value={item.text} onChange={e => updateItem(realIdx, 'text', e.target.value)} placeholder="English text" />
                   <input style={{ ...S.itemInput, color: '#8b7355', fontSize: '0.8rem' }} value={item.text_zh} onChange={e => updateItem(realIdx, 'text_zh', e.target.value)} placeholder="Chinese (optional)" />
                   {/* TTS row */}
-                  {item.id && (
-                    <div style={S.ttsRow}>
-                      <button style={S.ttsPlayBtn} onClick={() => playItemTts(item)} disabled={!item.tts_path} title="Play TTS">
-                        {item.tts_path ? '▶' : '—'}
-                      </button>
-                      <button style={S.ttsRegenBtn} onClick={() => regenerateItemTts(realIdx, item)} disabled={!!(item as any)._ttsLoading} title="Regenerate TTS">
-                        {(item as any)._ttsLoading ? '⏳' : '🔄'}
-                      </button>
-                      <span style={{ fontSize: '0.7rem', color: '#b89a6a' }}>{item.tts_path ? 'TTS ready' : 'No TTS'}</span>
-                    </div>
-                  )}
+                  <div style={S.ttsRow}>
+                    <button style={S.ttsPlayBtn} onClick={() => playItemTts(item)} disabled={!item.tts_path} title="Play TTS">
+                      {item.tts_path ? '▶' : '—'}
+                    </button>
+                    <button style={S.ttsRegenBtn} onClick={() => regenerateItemTts(realIdx, item)} disabled={!!(item as any)._ttsLoading} title="Generate TTS">
+                      {(item as any)._ttsLoading ? '⏳' : '🔊'}
+                    </button>
+                    <span style={{ fontSize: '0.7rem', color: '#b89a6a' }}>{item.tts_path ? 'TTS ready' : 'Click 🔊 to generate'}</span>
+                  </div>
                 </div>
               </div>
               <button style={S.removeBtn} onClick={() => removeItem(realIdx)} title="Remove">−</button>
@@ -384,9 +456,9 @@ function WeakSentences() {
   }, [threshold])
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={S.weakHeader}>
-        <span style={S.weakTitle}>Weak Sentences</span>
+        <span style={S.weakTitle}>Weakness</span>
         <div style={S.thresholdControl}>
           <span style={{ fontSize: '0.85rem', color: '#8b7355' }}>Threshold:</span>
           <select style={S.thresholdSelect} value={threshold} onChange={e => { setLoaded(false); setThreshold(Number(e.target.value)) }}>
@@ -397,32 +469,56 @@ function WeakSentences() {
           </select>
         </div>
       </div>
-      {weak.length === 0 && loaded && <div style={S.empty}>No weak sentences. Great job! 🎉</div>}
-      {weak.map((w, i) => (
-        <div key={i} style={S.weakCard}>
-          <div style={S.weakLeft}>
-            <div style={S.weakText}>{w.text}</div>
-            {w.text_zh && <div style={S.weakZh}>{w.text_zh}</div>}
-            <div style={S.weakMeta}>
-              <span style={{ ...S.hitBadge, background: '#fadbd8', color: '#c0392b' }}>{(w.avg_hit_ratio * 100).toFixed(0)}%</span>
-              <span>{w.attempt_count} attempts</span>
-              <span>avg: {(w.avg_hit_ratio * 100).toFixed(0)}%</span>
+      <div style={S.scrollContent} className="items-scroll">
+        {weak.length === 0 && loaded && <div style={S.empty}>No weak sentences. Great job! 🎉</div>}
+        {weak.map((w, i) => (
+          <div key={i} style={S.weakCard}>
+            <div style={S.weakLeft}>
+              <div style={S.weakText}>{w.text}</div>
+              {w.text_zh && <div style={S.weakZh}>{w.text_zh}</div>}
+              <div style={S.weakMeta}>
+                <span style={{ ...S.hitBadge, background: '#fadbd8', color: '#c0392b' }}>{(w.avg_hit_ratio * 100).toFixed(0)}%</span>
+                <span>{w.attempt_count} attempts</span>
+              </div>
             </div>
+            {w.audio_path && (
+              <div style={S.weakAudio}>
+                <button style={S.weakPlayBtn} onClick={() => new Audio(`/data/recordings/${w.audio_path}`).play()}>
+                  ▶
+                </button>
+              </div>
+            )}
           </div>
-          {w.audio_path && <audio controls src={`/data/recordings/${w.audio_path}`} style={S.audioPlayer} preload="none" />}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   )
 }
 
 /* ==================== Styles ==================== */
 const S: Record<string, React.CSSProperties> = {
-  page: { maxWidth: 800, margin: '0 auto', padding: '1.5rem 1.5rem 3rem', fontFamily: 'Nunito, PingFang SC, Microsoft YaHei, sans-serif', background: '#fdf6e8', minHeight: '100vh' },
-  pageTitle: { fontSize: '1.8rem', fontWeight: 900, color: '#c8943e', marginBottom: '1rem' },
-  tabBar: { display: 'flex', gap: 8, marginBottom: '1.5rem', flexWrap: 'wrap' },
-  tab: { padding: '7px 16px', borderRadius: 20, border: '2px solid #e8dcc8', background: 'white', color: '#8b6914', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  page: { height: '100%', display: 'flex', flexDirection: 'column', fontFamily: 'Nunito, PingFang SC, Microsoft YaHei, sans-serif', background: '#fdf6e8', overflow: 'hidden' },
+  topBar: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '2px solid #e8dcc8', background: 'rgba(255,255,255,0.5)', flexShrink: 0 },
+  pageTitle: { fontSize: '1.4rem', fontWeight: 900, color: '#c8943e' },
+  toast: {
+    position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)',
+    padding: '8px 20px', borderRadius: 20,
+    background: '#5a3e1b', color: 'white',
+    fontSize: '0.85rem', fontWeight: 700, zIndex: 200,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+  },
+  adminLink: {
+    position: 'fixed', top: 12, right: 12,
+    width: 36, height: 36, borderRadius: '50%',
+    border: 'none', background: 'rgba(255,255,255,0.5)',
+    fontSize: '1.1rem', cursor: 'pointer', zIndex: 100,
+    opacity: 0.4, transition: 'opacity 0.2s',
+  },
+  layout: { display: 'flex', flex: 1, overflow: 'hidden' },
+  sidebar: { width: 160, flexShrink: 0, padding: '12px 8px', borderRight: '2px solid #e8dcc8', display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(255,255,255,0.3)' },
+  tab: { padding: '10px 12px', borderRadius: 12, border: '2px solid transparent', background: 'transparent', color: '#8b6914', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' },
   tabActive: { background: '#d4a574', color: 'white', border: '2px solid #d4a574' },
+  content: { flex: 1, overflow: 'hidden', padding: '16px 20px', display: 'flex', flexDirection: 'column' },
   loading: { textAlign: 'center', color: '#b89a6a', padding: '3rem' },
   empty: { textAlign: 'center', color: '#b89a6a', padding: '3rem', fontSize: '1rem' },
 
@@ -439,10 +535,12 @@ const S: Record<string, React.CSSProperties> = {
   label: { display: 'block', fontWeight: 700, color: '#5a3e1b', marginBottom: 6, fontSize: '0.9rem' },
   input: { width: '100%', padding: '10px 14px', borderRadius: 12, border: '2px solid #e8dcc8', fontSize: '1rem', fontFamily: 'inherit', background: 'rgba(255,255,255,0.8)' },
 
-  itemsSection: { marginTop: 8 },
+  scrollContent: { flex: 1, overflowY: 'auto', paddingRight: 4, paddingBottom: 10 },
+  itemsScroll: { flex: 1, overflowY: 'auto', paddingRight: 4, paddingBottom: 10 },
   itemsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   itemsLabel: { fontWeight: 700, color: '#5a3e1b', fontSize: '0.95rem' },
   itemCard: { display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12, background: 'rgba(255,255,255,0.85)', borderRadius: 14, border: '2px solid #e8dcc8', padding: 12 },
+  dragHandle: { cursor: 'grab', color: '#b89a6a', fontSize: '1.2rem', flexShrink: 0, marginTop: 4, userSelect: 'none' },
   itemNumber: { width: 26, height: 26, borderRadius: '50%', background: '#d4a574', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0, marginTop: 4 },
   itemContent: { flex: 1, display: 'flex', gap: 10, minHeight: 80 },
   imageArea: { flexShrink: 0, width: 80, height: 80 },
@@ -489,7 +587,13 @@ const S: Record<string, React.CSSProperties> = {
   weakZh: { fontSize: '0.8rem', color: '#8b7355', marginTop: 2 },
   weakMeta: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: '0.75rem', color: '#b89a6a' },
   hitBadge: { padding: '1px 8px', borderRadius: 10, fontWeight: 700, fontSize: '0.75rem' },
-  audioPlayer: { width: 160, height: 32, flexShrink: 0 },
+  weakAudio: { display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 },
+  weakPlayBtn: {
+    width: 36, height: 36, borderRadius: '50%',
+    border: '2px solid #d4a574', background: '#fff8ee',
+    color: '#c8943e', fontSize: '0.9rem', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
 
   /* Settings */
   settingRow: {

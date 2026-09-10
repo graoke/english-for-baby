@@ -144,20 +144,28 @@ def delete_item(item_id: int, session: Session = Depends(get_session)):
 
 @router.post("/{item_id}/generate-tts", response_model=dict)
 async def generate_tts(item_id: int, session: Session = Depends(get_session)):
-    """Generate TTS audio for a single drill item using edge-tts."""
+    """Generate TTS audio for a single drill item."""
     item = session.get(DrillItem, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
 
-    from ..services.tts import generate_tts as do_tts
+    # Check TTS mode setting
+    from ..models import Settings
+    tts_mode_row = session.exec(select(Settings).where(Settings.key == "tts_mode")).first()
+    tts_mode = tts_mode_row.value if tts_mode_row else "local"
 
     audio_dir = DATA_DIR / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
     out_path = str(audio_dir / f"item_{item_id}.mp3")
 
-    logger.info("TTS start: item_id=%d, text=%r", item_id, item.text[:30])
+    logger.info("TTS start: item_id=%d, text=%r, mode=%s", item_id, item.text[:30], tts_mode)
     try:
-        await do_tts(item.text, out_path)
+        if tts_mode == "tencent":
+            from ..services.tts_tencent import generate_tts_tencent
+            generate_tts_tencent(item.text, out_path)
+        else:
+            from ..services.tts import generate_tts as do_tts
+            await do_tts(item.text, out_path)
         item.tts_path = f"item_{item_id}.mp3"
         session.add(item)
         session.commit()
@@ -180,17 +188,25 @@ async def generate_lesson_tts(lesson_id: int, session: Session = Depends(get_ses
         select(DrillItem).where(DrillItem.lesson_id == lesson_id, DrillItem.enabled == True)
     ).all()
 
-    from ..services.tts import generate_tts as do_tts
+    # Check TTS mode setting
+    from ..models import Settings
+    tts_mode_row = session.exec(select(Settings).where(Settings.key == "tts_mode")).first()
+    tts_mode = tts_mode_row.value if tts_mode_row else "local"
 
     audio_dir = DATA_DIR / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Batch TTS start: lesson_id=%d, %d items", lesson_id, len(items))
+    logger.info("Batch TTS start: lesson_id=%d, %d items, mode=%s", lesson_id, len(items), tts_mode)
     generated = 0
     for item in items:
         try:
             out_path = str(audio_dir / f"item_{item.id}.mp3")
-            await do_tts(item.text, out_path)
+            if tts_mode == "tencent":
+                from ..services.tts_tencent import generate_tts_tencent
+                generate_tts_tencent(item.text, out_path)
+            else:
+                from ..services.tts import generate_tts as do_tts
+                await do_tts(item.text, out_path)
             item.tts_path = f"item_{item.id}.mp3"
             session.add(item)
             generated += 1

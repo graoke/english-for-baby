@@ -10,9 +10,10 @@ interface LessonSummary { id: number; title: string; cover: string | null; page_
 
 export interface AppSettings {
   show_text: boolean
+  tts_mode: 'local' | 'tencent'
 }
 
-const DEFAULT_SETTINGS: AppSettings = { show_text: true }
+const DEFAULT_SETTINGS: AppSettings = { show_text: true, tts_mode: 'local' }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('picker')
@@ -33,15 +34,21 @@ export default function App() {
 
   // Listen for open-admin event from LessonPicker
   useEffect(() => {
-    const handler = () => setScreen('admin')
-    window.addEventListener('open-admin', handler)
-    return () => window.removeEventListener('open-admin', handler)
+    const adminHandler = () => setScreen('admin')
+    const pickerHandler = () => setScreen('picker')
+    window.addEventListener('open-admin', adminHandler)
+    window.addEventListener('open-picker', pickerHandler)
+    return () => {
+      window.removeEventListener('open-admin', adminHandler)
+      window.removeEventListener('open-picker', pickerHandler)
+    }
   }, [])
 
   const updateSettings = (patch: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...patch }))
     const body: Record<string, string> = {}
     if (patch.show_text !== undefined) body.show_text = patch.show_text ? 'true' : 'false'
+    if (patch.tts_mode !== undefined) body.tts_mode = patch.tts_mode
     fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   }
 
@@ -52,10 +59,7 @@ export default function App() {
       )}
 
       {screen === 'admin' && (
-        <div>
-          <button onClick={() => setScreen('picker')} style={S.backLink}>← Back</button>
-          <Admin settings={settings} onUpdateSettings={updateSettings} />
-        </div>
+        <Admin settings={settings} onUpdateSettings={updateSettings} />
       )}
 
       {screen === 'picker' && (
@@ -88,12 +92,5 @@ const S: Record<string, React.CSSProperties> = {
     border: 'none', background: 'rgba(255,255,255,0.5)',
     fontSize: '1.1rem', cursor: 'pointer', zIndex: 100,
     opacity: 0.4, transition: 'opacity 0.2s',
-  },
-  backLink: {
-    position: 'fixed', top: 12, left: 12,
-    padding: '6px 16px', borderRadius: 20,
-    border: '2px solid #d4a574', background: 'rgba(255,255,255,0.7)',
-    color: '#8b6914', fontSize: '0.9rem', fontWeight: 700,
-    cursor: 'pointer', zIndex: 100, fontFamily: 'inherit',
   },
 }
