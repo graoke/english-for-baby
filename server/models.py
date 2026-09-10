@@ -24,25 +24,12 @@ class AttemptMode(str, Enum):
     practice = "practice"
 
 
-# ---------- set ----------
-
-class Set(SQLModel, table=True):
-    __tablename__ = "set"
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    title: str
-    source_type: SourceType
-    cover: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 # ---------- lesson ----------
 
 class Lesson(SQLModel, table=True):
     __tablename__ = "lesson"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    set_id: Optional[int] = Field(default=None, foreign_key="set.id")
     title: str
     cover: Optional[str] = None
     page_count: int = 0

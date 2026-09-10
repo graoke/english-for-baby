@@ -42,7 +42,6 @@ def create_lesson(body: dict, session: Session = Depends(get_session), _=Depends
     lesson = Lesson(
         title=body["title"],
         cover=body.get("cover"),
-        set_id=body.get("set_id"),
         order_no=body.get("order_no", 0),
     )
     session.add(lesson)
@@ -87,7 +86,7 @@ def update_lesson(lesson_id: int, body: dict, session: Session = Depends(get_ses
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
-    for key in ("title", "cover", "order_no", "enabled", "set_id"):
+    for key in ("title", "cover", "order_no", "enabled"):
         if key in body:
             setattr(lesson, key, body[key])
     session.add(lesson)

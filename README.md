@@ -136,8 +136,10 @@ TENCENT_SECRET_KEY=your_secret_key
 │   │   │   ├── DrillPlayer.tsx    # Child lesson player
 │   │   │   ├── LessonPicker.tsx   # Home + lesson list
 │   │   │   └── Recorder.tsx       # Recording component (Safari compatible)
-│   │   └── pages/
-│   │       └── Admin.tsx          # Parent panel
+│   │   ├── pages/
+│   │   │   └── Admin.tsx          # Parent panel
+│   │   └── utils/
+│   │       └── authFetch.ts       # Token-injecting fetch wrapper
 │   └── vite.config.ts
 ├── data/                    # Runtime data
 │   ├── models/              # AI models (whisper, minicpm)
@@ -164,10 +166,9 @@ TENCENT_SECRET_KEY=your_secret_key
 
 ## Known Limitations
 
-- Video pipeline is not yet implemented (Phase 3)
 - MiniCPM model requires manual download
 - No mobile app (web app works on tablets)
 
 ## License
 
-No license specified. Contact author for usage permissions.
+MIT
