@@ -134,11 +134,18 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:8001,http://192.168.1.100,ht
 │   │   ├── lessons.py       # Lesson management
 │   │   ├── settings.py      # Key-value settings + PIN auth
 │   │   └── upload.py        # Image upload (auth required)
-│   └── services/
-│       ├── compare.py       # Completion scoring (bag-of-words)
-│       ├── transcribe.py    # faster-whisper ASR
-│       ├── tts.py           # edge-tts wrapper
-│       └── tts_tencent.py   # Tencent Cloud TTS
+│   ├── services/
+│   │   ├── compare.py       # Completion scoring (bag-of-words)
+│   │   ├── transcribe.py    # faster-whisper ASR
+│   │   ├── tts.py           # edge-tts wrapper
+│   │   └── tts_tencent.py   # Tencent Cloud TTS
+│   └── data/                # Runtime data (git-ignored)
+│       ├── models/          # AI models (whisper)
+│       ├── audio/           # Generated TTS audio
+│       ├── images/          # Uploaded images
+│       ├── recordings/      # Child recordings
+│       ├── app.db           # SQLite database
+│       └── logs/            # Application logs
 ├── web/
 │   ├── src/
 │   │   ├── App.tsx           # Screen routing
@@ -154,12 +161,6 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:8001,http://192.168.1.100,ht
 │   │       ├── authFetch.ts       # Token-injecting fetch wrapper
 │   │       └── recording.ts       # Shared recording utilities
 │   └── vite.config.ts
-├── data/                    # Runtime data
-│   ├── models/              # AI models (whisper)
-│   ├── audio/               # Generated TTS audio
-│   ├── images/              # Uploaded images
-│   ├── recordings/          # Child recordings (auth required)
-│   └── logs/                # Application logs
 ├── deploy/                  # Deployment configs
 │   ├── Dockerfile           # Multi-stage build (frontend + backend)
 │   ├── docker-compose.yml   # Docker Compose orchestration (reads .env)
@@ -185,27 +186,27 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:8001,http://192.168.1.100,ht
 
 | 数据 | 存储位置 | 说明 |
 |------|----------|------|
-| 录音文件 | `data/recordings/` | 孩子的朗读录音（.webm/.mp4） |
-| 图片 | `data/images/` | 课程配图 |
-| TTS 音频 | `data/audio/` | 合成的朗读音频 |
-| 练习记录 | `data/app.db` | SQLite 数据库（成绩、设置） |
-| 日志 | `data/logs/` | 运行日志 |
+| 录音文件 | `server/data/recordings/` | 孩子的朗读录音（.webm/.mp4） |
+| 图片 | `server/data/images/` | 课程配图 |
+| TTS 音频 | `server/data/audio/` | 合成的朗读音频 |
+| 练习记录 | `server/data/app.db` | SQLite 数据库（成绩、设置） |
+| 日志 | `server/data/logs/` | 运行日志 |
 
 ### 删除数据
 
 ```bash
 # 删除所有录音
-rm -rf data/recordings/*
+rm -rf server/data/recordings/*
 
 # 删除所有图片
-rm -rf data/images/*
+rm -rf server/data/images/*
 
 # 删除所有练习记录（重置数据库）
-rm data/app.db
+rm server/data/app.db
 # 重启服务后会自动重建空数据库
 
 # 彻底重置（删除所有数据）
-rm -rf data/
+rm -rf server/data/
 ```
 
 ## Browser Compatibility

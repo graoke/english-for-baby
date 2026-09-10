@@ -24,7 +24,14 @@ npm install
 npm run build
 cd "$ROOT_DIR"
 
-# 2. 确保数据目录存在
+# 2. 确保 .env 存在
+if [ ! -f "$ROOT_DIR/.env" ]; then
+    echo "⚠️  .env 文件不存在，从 .env.example 创建..."
+    cp "$ROOT_DIR/.env.example" "$ROOT_DIR/.env"
+    echo "📝 已创建 .env，请根据需要编辑配置（如腾讯云 TTS 密钥、HuggingFace 镜像等）"
+fi
+
+# 3. 确保数据目录存在
 echo "📁 创建数据目录..."
 mkdir -p server/data/models server/data/audio server/data/images server/data/recordings server/data/logs
 
