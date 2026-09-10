@@ -7,7 +7,8 @@ node_modules/
 server/data/
 *.log
 .env
-.env.*
+.env.local
+.env.*.local
 *.db
 *.sqlite
 .idea/
