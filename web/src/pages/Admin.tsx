@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { AppSettings } from '../App'
 import { authFetch } from '../utils/authFetch'
 
@@ -325,9 +325,78 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
 }
 
 /* ==================== Practice History ==================== */
+function HistoryAttemptRow({ attempt }: { attempt: any }) {
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  const togglePlay = () => {
+    if (playing && audioRef.current) {
+      audioRef.current.pause()
+      setPlaying(false)
+    } else {
+      const a = new Audio(`/data/recordings/${attempt.audio_path}`)
+      a.onended = () => setPlaying(false)
+      a.play()
+      audioRef.current = a
+      setPlaying(true)
+    }
+  }
+
+  const hitWords = (() => {
+    try { return JSON.parse(attempt.hit_words || '[]') } catch { return [] }
+  })()
+  const score = Math.round((attempt.hit_ratio ?? 0) * 100)
+
+  return (
+    <div style={{ ...S.weakCard, marginBottom: 8, padding: '10px 12px' }}>
+      <div style={S.weakLeft}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          {attempt.image_path && (
+            <img src={`/data/images/${attempt.image_path}`} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }} />
+          )}
+          <div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#5a3e1b' }}>{attempt.text}</div>
+            {attempt.text_zh && <div style={{ fontSize: '0.75rem', color: '#8b7355' }}>{attempt.text_zh}</div>}
+          </div>
+        </div>
+        {attempt.asr_text && (
+          <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: 4 }}>
+            <span style={{ fontWeight: 600 }}>ASR: </span>
+            {attempt.asr_text}
+          </div>
+        )}
+        {hitWords.length > 0 && (
+          <div style={{ fontSize: '0.75rem', color: '#27ae60', marginBottom: 4 }}>
+            Matched: {hitWords.join(', ')}
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.75rem', color: '#b89a6a' }}>
+          <span>{attempt.time}</span>
+          <span>·</span>
+          <span style={{ ...S.hitBadge, background: score >= 80 ? '#d4edda' : score >= 50 ? '#fff3cd' : '#f8d7da', color: score >= 80 ? '#155724' : score >= 50 ? '#856404' : '#721c24' }}>
+            {score}%
+          </span>
+          <span style={{ padding: '1px 6px', borderRadius: 8, background: attempt.mode === 'assessed' ? '#e8f5e9' : '#e3f2fd', color: attempt.mode === 'assessed' ? '#2e7d32' : '#1565c0', fontSize: '0.7rem', fontWeight: 600 }}>
+            {attempt.mode}
+          </span>
+        </div>
+      </div>
+      {attempt.audio_path && (
+        <button onClick={togglePlay} style={S.weakPlayBtn}>
+          {playing ? '⏸' : '▶'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function PracticeHistory() {
   const [daily, setDaily] = useState<any[]>([])
+  const [sessions, setSessions] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loaded, setLoaded] = useState(false)
+  const [expandedSession, setExpandedSession] = useState<string | null>(null)
 
   // Default: last 7 days
   const today = new Date()
@@ -338,6 +407,12 @@ function PracticeHistory() {
   useEffect(() => {
     authFetch('/api/history/daily').then(r => r.json()).then(d => { setDaily(d); setLoaded(true) })
   }, [])
+
+  useEffect(() => {
+    authFetch(`/api/history?page=${page}&page_size=20`)
+      .then(r => r.json())
+      .then(d => { setSessions(d.items || []); setTotal(d.total || 0) })
+  }, [page])
 
   const filtered = daily.filter(d => d.date >= startDate && d.date <= endDate)
 
@@ -441,6 +516,61 @@ function PracticeHistory() {
           <span style={{ color: '#c8943e' }}>━━ sentence count (left)</span>
           <span style={{ color: '#27ae60' }}>━━ avg score (right)</span>
         </div>
+      </div>
+
+      {/* Session Detail List */}
+      <div style={S.chartSection}>
+        <div style={S.chartHeader}>
+          <div style={S.chartTitle}>Practice Sessions</div>
+          <div style={{ fontSize: '0.8rem', color: '#b89a6a' }}>
+            {total} session{total !== 1 ? 's' : ''} total
+          </div>
+        </div>
+        {sessions.length === 0 && loaded && <div style={S.empty}>No practice sessions yet.</div>}
+        {sessions.map((session, si) => {
+          const key = `${session.lesson_id}-${session.date}`
+          const isExpanded = expandedSession === key
+          const avgScore = session.sentences.length > 0
+            ? Math.round(session.sentences.reduce((sum: number, s: any) => sum + (s.hit_ratio ?? 0), 0) / session.sentences.length * 100)
+            : 0
+          return (
+            <div key={si} style={{ marginBottom: 12 }}>
+              <div
+                onClick={() => setExpandedSession(isExpanded ? null : key)}
+                style={{ ...S.weakCard, cursor: 'pointer', background: isExpanded ? '#f5efe3' : 'rgba(255,255,255,0.85)' }}
+              >
+                <div style={S.weakLeft}>
+                  <div style={S.weakText}>{session.lesson_title}</div>
+                  <div style={S.weakMeta}>
+                    <span>{session.date}</span>
+                    <span>·</span>
+                    <span>{session.sentences.length} sentence{session.sentences.length !== 1 ? 's' : ''}</span>
+                    <span>·</span>
+                    <span>{session.first_time?.slice(11, 16)}–{session.last_time?.slice(11, 16)}</span>
+                  </div>
+                </div>
+                <span style={{ ...S.hitBadge, background: avgScore >= 80 ? '#d4edda' : avgScore >= 50 ? '#fff3cd' : '#f8d7da', color: avgScore >= 80 ? '#155724' : avgScore >= 50 ? '#856404' : '#721c24' }}>
+                  {avgScore}%
+                </span>
+                <span style={{ color: '#b89a6a', fontSize: '0.8rem' }}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
+              {isExpanded && (
+                <div style={{ marginTop: 6, marginLeft: 12 }}>
+                  {session.sentences.map((s: any, i: number) => (
+                    <HistoryAttemptRow key={i} attempt={s} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {total > 20 && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+            <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={S.secondaryBtn}>← Prev</button>
+            <span style={{ fontSize: '0.85rem', color: '#5a3e1b', lineHeight: '32px' }}>Page {page} / {Math.ceil(total / 20)}</span>
+            <button disabled={page * 20 >= total} onClick={() => setPage(p => p + 1)} style={S.secondaryBtn}>Next →</button>
+          </div>
+        )}
       </div>
     </div>
   )
