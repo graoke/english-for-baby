@@ -89,7 +89,6 @@ async def create_attempt(
     file: UploadFile = File(...),
     duration_ms: int = 0,
     session: Session = Depends(get_session),
-    _=Depends(require_parent),
 ):
     """Upload recording, run comparison in background thread, save attempt.
 

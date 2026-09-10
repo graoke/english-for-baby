@@ -265,7 +265,6 @@ def get_weak_sentences(
 def get_challenge_sentences(
     count: int = Query(5, description="Number of weak sentences to return"),
     session: Session = Depends(get_session),
-    _=Depends(require_parent),
 ):
     """Return random weak sentences for child's challenge mode.
     Fixed N+1: use single query with window function.

@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
@@ -83,7 +83,7 @@ for subdir in ("audio", "images"):
 
 
 @app.get("/data/recordings/{filename}")
-async def serve_recording(filename: str, request: 'fastapi.Request'):
+async def serve_recording(filename: str, request: Request):
     """Stream a recording file — requires parent auth (header or query param token)."""
     from fastapi import HTTPException
     # Accept auth via X-Session-Token header OR ?token= query param

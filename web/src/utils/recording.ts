@@ -22,6 +22,7 @@ export interface RecordingResult {
   blob: Blob
   durationMs: number
   filename: string
+  mimeType: string
 }
 
 export interface StartRecordingOptions {
@@ -62,6 +63,7 @@ export async function startRecording(
       blob,
       durationMs: Date.now() - startTime,
       filename: `recording.${ext}`,
+      mimeType: recorder.mimeType || 'audio/webm',
     })
   }
 
@@ -80,9 +82,10 @@ export async function startRecording(
 /**
  * Upload a recording to the server (fire-and-forget).
  */
-export function uploadRecording(blob: Blob, itemId: number, durationMs: number): void {
+export function uploadRecording(blob: Blob, itemId: number, durationMs: number, mimeType?: string): void {
   const fd = new FormData()
-  fd.append('file', blob, 'recording.webm')
+  const ext = mimeType?.includes('mp4') ? 'mp4' : 'webm'
+  fd.append('file', blob, `recording.${ext}`)
   fetch(`/api/attempts?drill_item_id=${itemId}&duration_ms=${durationMs}`, {
     method: 'POST',
     body: fd,

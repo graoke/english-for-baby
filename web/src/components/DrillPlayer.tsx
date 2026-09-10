@@ -84,7 +84,7 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
     try {
       setError(null)
       const result = await startRecording({
-        onRecordingComplete: ({ blob, durationMs }) => {
+        onRecordingComplete: ({ blob, durationMs, mimeType }) => {
           setLastRecordingUrl(URL.createObjectURL(blob))
           setRecordingState('idle')
           setShowConfetti(true)
@@ -92,7 +92,7 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
           setShowPlayback(true)
           setTimeout(() => setShowConfetti(false), 1500)
           const itemId = recordingItemRef.current
-          if (itemId != null) uploadRecording(blob, itemId, durationMs)
+          if (itemId != null) uploadRecording(blob, itemId, durationMs, mimeType)
         },
         onError: (msg) => {
           setError(msg)
