@@ -184,7 +184,8 @@ export default function Challenge({ showText, onBack }: Props) {
             <button style={S.playbackBtn} onClick={playRecording}>▶ 听我说的</button>
           )}
           {!showPlayback && (
-            <button style={S.nextBtn} onClick={goNext} disabled={currentIndex === totalPages - 1}>
+            <button style={{ ...S.nextBtn, ...(recordingState === 'recording' ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
+              onClick={goNext} disabled={currentIndex === totalPages - 1 || recordingState === 'recording'}>
               {currentIndex === totalPages - 1 ? 'Finish' : 'Skip ▶'}
             </button>
           )}

@@ -196,7 +196,7 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
 
       {/* Bottom bar */}
       <div style={S.bottomBar}>
-        <button style={S.navBtn} onClick={goPrev} disabled={currentIndex === 0}>◀ 上一页</button>
+        <button style={S.navBtn} onClick={goPrev} disabled={currentIndex === 0 || recordingState === 'recording'}>◀ 上一页</button>
 
         <div style={S.progressArea}>
           <span style={S.pageIndicator}>{currentIndex + 1} / {totalPages}</span>
@@ -204,8 +204,9 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
         </div>
 
         <button
-          style={S.navBtn}
+          style={{ ...S.navBtn, ...(recordingState === 'recording' ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }}
           onClick={currentIndex === totalPages - 1 ? () => setShowFinish(true) : goNext}
+          disabled={recordingState === 'recording'}
         >
           {currentIndex === totalPages - 1 ? '完成 ✅' : '下一页 ▶'}
         </button>
