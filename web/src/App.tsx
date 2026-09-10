@@ -4,6 +4,7 @@ import DrillPlayer from './components/DrillPlayer'
 import Challenge from './components/Challenge'
 import Admin from './pages/Admin'
 import AdminGuard from './components/AdminGuard'
+import { authFetch } from './utils/authFetch'
 
 type Screen = 'picker' | 'practice' | 'challenge' | 'admin'
 
@@ -50,7 +51,7 @@ export default function App() {
     const body: Record<string, string> = {}
     if (patch.show_text !== undefined) body.show_text = patch.show_text ? 'true' : 'false'
     if (patch.tts_mode !== undefined) body.tts_mode = patch.tts_mode
-    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    authFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   }
 
   return (

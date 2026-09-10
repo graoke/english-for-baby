@@ -7,18 +7,14 @@
 ```bash
 # 1. 克隆项目
 git clone <repo-url>
-cd peppa_reader
+cd english-for-baby
 
-# 2. 构建前端
-cd web && npm install && npm run build && cd ..
-
-# 3. 启动服务
-docker-compose up -d
-
-# 4. 访问
-# 本机: http://localhost:5174
-# 局域网: http://你的IP:5174
+# 2. 构建并启动
+cd deploy
+./build.sh
 ```
+
+访问: `http://你的IP`
 
 ### 方式二：直接部署
 
@@ -32,7 +28,7 @@ cd ../web
 npm install
 npm run build
 
-# 3. 启动后端（会自动托管前端静态文件）
+# 3. 启动后端
 cd ..
 uvicorn server.main:app --host 0.0.0.0 --port 8001
 ```
@@ -54,7 +50,7 @@ ipconfig
 
 ## 首次使用
 
-1. 用 iPad/手机打开 `http://你的IP:5174`
+1. 用 iPad/手机打开 `http://你的IP`
 2. 点击右上角 👨‍👩‍👧 进入家长面板
 3. 首次使用会要求设置 PIN（4-8 位）
 4. 设置后每次进入都需要输入 PIN
@@ -87,6 +83,15 @@ iPad 在 HTTP 局域网访问时无法使用麦克风。解决方案：
 
 - **Whisper**: 首次使用自动下载（约 500MB）
 - **MiniCPM**: 需要手动下载（约 2GB），放到 `data/models/` 目录
+
+### 环境变量
+
+复制 `.env.example` 为 `.env`，填入你的配置：
+
+```bash
+cp .env.example .env
+# 编辑 .env 填入腾讯云 TTS 密钥等
+```
 
 ## 生产环境建议
 

@@ -18,11 +18,15 @@ def get_session():
         yield session
 
 
+from .settings import require_parent
+
+
 @router.get("", response_model=dict)
 def get_practice_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     session: Session = Depends(get_session),
+    _=Depends(require_parent),
 ):
     """Return practice history grouped by lesson, with pagination."""
     # Fetch all attempts with joined item + lesson info
@@ -108,7 +112,7 @@ def get_practice_history(
 
 
 @router.get("/stats", response_model=dict)
-def get_stats(session: Session = Depends(get_session)):
+def get_stats(session: Session = Depends(get_session), _=Depends(require_parent)):
     """Return summary stats for the parent dashboard."""
     total_attempts = session.exec(select(func.count(Attempt.id))).one()
     total_lessons = session.exec(
@@ -131,7 +135,7 @@ def get_stats(session: Session = Depends(get_session)):
 
 
 @router.get("/daily", response_model=List[dict])
-def get_daily_stats(session: Session = Depends(get_session)):
+def get_daily_stats(session: Session = Depends(get_session), _=Depends(require_parent)):
     """Return per-day stats: sentence count and average score."""
     stmt = (
         select(
@@ -158,6 +162,7 @@ def get_daily_stats(session: Session = Depends(get_session)):
 def get_weak_sentences(
     threshold: float = Query(0.7, description="Max avg hit_ratio to be considered weak"),
     session: Session = Depends(get_session),
+    _=Depends(require_parent),
 ):
     """Return sentences where the child's average score is below the threshold.
     Fixed N+1: use single query to get last attempt per item.

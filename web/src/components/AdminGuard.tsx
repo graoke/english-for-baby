@@ -41,7 +41,11 @@ export default function AdminGuard({ children }: Props) {
         setShowPinInput(true)
         setLoading(false)
       })
-      .catch(() => { setIsAuthenticated(true); setLoading(false) })
+      .catch(() => {
+        // fail-close: network error → stay locked
+        setError('网络错误，请重试')
+        setLoading(false)
+      })
   }
 
   const handleSetPin = async () => {
@@ -102,11 +106,6 @@ export default function AdminGuard({ children }: Props) {
     setShowPinInput(true)
     setPin('')
   }
-
-  useEffect(() => {
-    ;(window as any).__peppaParentLogout = handleLogout
-    return () => { delete (window as any).__peppaParentLogout }
-  }, [])
 
   if (loading) return <div style={S.overlay}><div style={S.card}><div style={S.loading}>Loading...</div></div></div>
   if (isAuthenticated) return <>{children}</>
