@@ -1,9 +1,11 @@
 """Two-stage comparison: exact match → MiniCPM phonetic evaluator (GGUF)."""
 
 import logging
+import os
 import re
 import threading
 import time
+from pathlib import Path
 from typing import Set
 
 logger = logging.getLogger("peppa.compare")
@@ -25,7 +27,14 @@ CONTRACTIONS = {
     "when's": "when is", "how's": "how is",
 }
 
-GGUF_PATH = "/tmp/minicpm-eval/minicpm-phonetic-evaluator-q4_k_m.gguf"
+# 默认模型路径（相对于项目根目录）
+DEFAULT_GGUF_PATH = str(Path(__file__).parent.parent.parent / "data" / "models" / "minicpm-phonetic-evaluator-q4_k_m.gguf")
+
+
+def _get_gguf_path() -> str:
+    """从环境变量获取 MiniCPM GGUF 模型路径。"""
+    return os.environ.get("MINICPM_GGUF_PATH", DEFAULT_GGUF_PATH)
+
 
 def normalize(text: str) -> Set[str]:
     t = text.lower().strip()
@@ -48,11 +57,21 @@ def _load_llm():
     with _llm_lock:
         if _llm is not None:
             return
+        
+        gguf_path = _get_gguf_path()
+        
+        # 检查模型文件是否存在
+        if not Path(gguf_path).exists():
+            raise FileNotFoundError(
+                f"MiniCPM GGUF model not found at {gguf_path}\n"
+                f"Please download the model and place it there, or set MINICPM_GGUF_PATH environment variable."
+            )
+        
         from llama_cpp import Llama
-        logger.info("Loading MiniCPM GGUF from %s ...", GGUF_PATH)
+        logger.info("Loading MiniCPM GGUF from %s ...", gguf_path)
         t0 = time.time()
         _llm = Llama(
-            model_path=GGUF_PATH,
+            model_path=gguf_path,
             n_ctx=512,
             n_threads=4,
             verbose=False,
@@ -146,6 +165,8 @@ def preload_minicpm():
     def _bg():
         try:
             _load_llm()
+        except FileNotFoundError as e:
+            logger.warning("MiniCPM model not found: %s", e)
         except Exception as e:
             logger.exception("MiniCPM pre-load failed")
     threading.Thread(target=_bg, daemon=True).start()

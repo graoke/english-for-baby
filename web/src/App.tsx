@@ -3,6 +3,7 @@ import LessonPicker from './components/LessonPicker'
 import DrillPlayer from './components/DrillPlayer'
 import Challenge from './components/Challenge'
 import Admin from './pages/Admin'
+import AdminGuard from './components/AdminGuard'
 
 type Screen = 'picker' | 'practice' | 'challenge' | 'admin'
 
@@ -59,7 +60,9 @@ export default function App() {
       )}
 
       {screen === 'admin' && (
-        <Admin settings={settings} onUpdateSettings={updateSettings} />
+        <AdminGuard>
+          <Admin settings={settings} onUpdateSettings={updateSettings} />
+        </AdminGuard>
       )}
 
       {screen === 'picker' && (

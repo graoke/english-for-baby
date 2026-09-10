@@ -11,6 +11,25 @@ interface Props {
   lessonId: number; lessonTitle: string; showText: boolean; onBack: () => void
 }
 
+// 检测是否支持 WebM 格式
+function isWebMSupported(): boolean {
+  if (typeof MediaRecorder === 'undefined') return false
+  return MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+}
+
+// 检测是否支持 MP4 格式
+function isMP4Supported(): boolean {
+  if (typeof MediaRecorder === 'undefined') return false
+  return MediaRecorder.isTypeSupported('audio/mp4')
+}
+
+// 获取支持的 MIME 类型
+function getSupportedMimeType(): string {
+  if (isWebMSupported()) return 'audio/webm;codecs=opus'
+  if (isMP4Supported()) return 'audio/mp4'
+  return ''
+}
+
 export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }: Props) {
   const [items, setItems] = useState<DrillItem[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -19,6 +38,7 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
   const [showFinish, setShowFinish] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Recording state
   const [recordingState, setRecordingState] = useState<'idle' | 'recording'>('idle')
@@ -41,8 +61,8 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
   const totalPages = items.length
   const progress = totalPages > 0 ? ((currentIndex + 1) / totalPages) * 100 : 0
 
-  const goNext = () => { if (currentIndex < items.length - 1) setCurrentIndex(currentIndex + 1); setShowPlayback(false); setLastRecordingUrl(null) }
-  const goPrev = () => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); setShowPlayback(false); setLastRecordingUrl(null) }
+  const goNext = () => { if (currentIndex < items.length - 1) setCurrentIndex(currentIndex + 1); setShowPlayback(false); setLastRecordingUrl(null); setError(null) }
+  const goPrev = () => { if (currentIndex > 0) setCurrentIndex(currentIndex - 1); setShowPlayback(false); setLastRecordingUrl(null); setError(null) }
 
   // TTS playback — auto-generate if missing
   const playTTS = async () => {
@@ -76,13 +96,29 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
   // Recording controls
   const startRecording = async () => {
     try {
+      setError(null)
+      
+      // 检查浏览器支持
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('浏览器不支持录音（需要 HTTPS 或 localhost）')
+        return
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      
+      // 获取支持的 MIME 类型
+      const mimeType = getSupportedMimeType()
+      const recorderOptions: MediaRecorderOptions = {}
+      if (mimeType) {
+        recorderOptions.mimeType = mimeType
+      }
+      
+      const recorder = new MediaRecorder(stream, recorderOptions)
       chunksRef.current = []
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         setLastRecordingUrl(URL.createObjectURL(blob))
         setRecordingState('idle')
         setShowConfetti(true)
@@ -91,16 +127,27 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
         setTimeout(() => setShowConfetti(false), 1500)
         // Fire-and-forget upload + ASR in background
         const fd = new FormData()
-        fd.append('file', blob, 'recording.webm')
+        fd.append('file', blob, `recording.${recorder.mimeType?.includes('mp4') ? 'mp4' : 'webm'}`)
         fetch(`/api/attempts?drill_item_id=${currentItem.id}`, { method: 'POST', body: fd })
           .catch(e => console.error('Upload failed:', e))
+      }
+      recorder.onerror = (e) => {
+        console.error('MediaRecorder error:', e)
+        stream.getTracks().forEach(t => t.stop())
+        setError('录音出错，请重试')
+        setRecordingState('idle')
       }
       mediaRef.current = recorder
       recorder.start()
       setRecordingState('recording')
       setShowPlayback(false)
-    } catch (err) {
+    } catch (err: any) {
       console.error('Microphone access denied:', err)
+      if (err.name === 'NotAllowedError') {
+        setError('请允许麦克风访问权限')
+      } else {
+        setError('无法访问麦克风')
+      }
     }
   }
 
@@ -183,6 +230,11 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
         )}
       </div>
 
+      {/* Error message */}
+      {error && (
+        <div style={S.errorBanner}>{error}</div>
+      )}
+
       {/* Bottom bar */}
       <div style={S.bottomBar}>
         <button style={S.navBtn} onClick={goPrev} disabled={currentIndex === 0}>◀ 上一页</button>
@@ -245,6 +297,12 @@ const S: Record<string, React.CSSProperties> = {
   englishText: { fontSize: 'clamp(1.3rem, 3vw, 2rem)', fontWeight: 700, color: '#5a3e1b', lineHeight: 1.5 },
   chineseText: { fontSize: '1rem', color: '#8b7355', marginTop: 8, lineHeight: 1.4 },
   hintText: { fontSize: '0.85rem', color: '#c4a87a', fontStyle: 'italic', cursor: 'pointer' },
+
+  errorBanner: {
+    textAlign: 'center', padding: '8px 16px', margin: '0 32px',
+    background: '#fadbd8', color: '#c0392b', borderRadius: 12,
+    fontSize: '0.85rem', fontWeight: 600,
+  },
 
   bottomBar: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '10px 24px 6px', flexShrink: 0, flexWrap: 'wrap' },
   navBtn: { padding: '8px 18px', borderRadius: 20, border: '2px solid #d4a574', background: 'white', color: '#8b6914', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },

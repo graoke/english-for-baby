@@ -8,6 +8,25 @@ interface ChallengeItem {
 
 interface Props { showText: boolean; onBack: () => void }
 
+// 检测是否支持 WebM 格式
+function isWebMSupported(): boolean {
+  if (typeof MediaRecorder === 'undefined') return false
+  return MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+}
+
+// 检测是否支持 MP4 格式
+function isMP4Supported(): boolean {
+  if (typeof MediaRecorder === 'undefined') return false
+  return MediaRecorder.isTypeSupported('audio/mp4')
+}
+
+// 获取支持的 MIME 类型
+function getSupportedMimeType(): string {
+  if (isWebMSupported()) return 'audio/webm;codecs=opus'
+  if (isMP4Supported()) return 'audio/mp4'
+  return ''
+}
+
 export default function Challenge({ showText, onBack }: Props) {
   const [items, setItems] = useState<ChallengeItem[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -20,6 +39,7 @@ export default function Challenge({ showText, onBack }: Props) {
   const [lastRecordingUrl, setLastRecordingUrl] = useState<string | null>(null)
   const [showPlayback, setShowPlayback] = useState(false)
   const [empty, setEmpty] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
@@ -36,7 +56,7 @@ export default function Challenge({ showText, onBack }: Props) {
 
   const goNext = () => {
     if (currentIndex < items.length - 1) setCurrentIndex(currentIndex + 1)
-    setShowPlayback(false); setLastRecordingUrl(null)
+    setShowPlayback(false); setLastRecordingUrl(null); setError(null)
   }
 
   const playTTS = async () => {
@@ -59,13 +79,29 @@ export default function Challenge({ showText, onBack }: Props) {
 
   const startRecording = async () => {
     try {
+      setError(null)
+      
+      // 检查浏览器支持
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('浏览器不支持录音（需要 HTTPS 或 localhost）')
+        return
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' })
+      
+      // 获取支持的 MIME 类型
+      const mimeType = getSupportedMimeType()
+      const recorderOptions: MediaRecorderOptions = {}
+      if (mimeType) {
+        recorderOptions.mimeType = mimeType
+      }
+      
+      const recorder = new MediaRecorder(stream, recorderOptions)
       chunksRef.current = []
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         setLastRecordingUrl(URL.createObjectURL(blob))
         setRecordingState('idle')
         setShowConfetti(true)
@@ -73,13 +109,26 @@ export default function Challenge({ showText, onBack }: Props) {
         setShowPlayback(true)
         setTimeout(() => setShowConfetti(false), 1500)
         // Fire-and-forget upload + ASR
-        const fd = new FormData(); fd.append('file', blob, 'recording.webm')
+        const fd = new FormData(); fd.append('file', blob, `recording.${recorder.mimeType?.includes('mp4') ? 'mp4' : 'webm'}`)
         fetch(`/api/attempts?drill_item_id=${currentItem.id}`, { method: 'POST', body: fd })
           .catch(e => console.error('Upload failed:', e))
       }
+      recorder.onerror = (e) => {
+        console.error('MediaRecorder error:', e)
+        stream.getTracks().forEach(t => t.stop())
+        setError('录音出错，请重试')
+        setRecordingState('idle')
+      }
       mediaRef.current = recorder; recorder.start()
       setRecordingState('recording'); setShowPlayback(false)
-    } catch (err) { console.error('Mic denied', err) }
+    } catch (err: any) { 
+      console.error('Mic denied', err)
+      if (err.name === 'NotAllowedError') {
+        setError('请允许麦克风访问权限')
+      } else {
+        setError('无法访问麦克风')
+      }
+    }
   }
 
   const stopRecording = () => { mediaRef.current?.stop() }
@@ -157,6 +206,11 @@ export default function Challenge({ showText, onBack }: Props) {
         )}
       </div>
 
+      {/* Error message */}
+      {error && (
+        <div style={S.errorBanner}>{error}</div>
+      )}
+
       {/* Bottom bar */}
       <div style={S.bottomBar}>
         <div style={S.progressArea}>
@@ -208,7 +262,6 @@ const S: Record<string, React.CSSProperties> = {
   cardLeftFull: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5edd6', cursor: 'pointer', overflow: 'hidden', padding: 16, position: 'relative' },
   mainImage: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 16 },
   mainImageLarge: { maxWidth: '80%', maxHeight: '80%', objectFit: 'contain', borderRadius: 16 },
-  mainImage: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 16 },
   noImage: { width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   noImageEmoji: { fontSize: '5rem', opacity: 0.3 },
   genOverlay: { position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', color: '#c8943e', fontWeight: 700, zIndex: 1 },
@@ -218,6 +271,12 @@ const S: Record<string, React.CSSProperties> = {
   englishText: { fontSize: 'clamp(1.3rem, 3vw, 2rem)', fontWeight: 700, color: '#5a3e1b', lineHeight: 1.5 },
   chineseText: { fontSize: '1rem', color: '#8b7355', marginTop: 8, lineHeight: 1.4 },
   hintText: { fontSize: '0.85rem', color: '#c4a87a', fontStyle: 'italic', cursor: 'pointer' },
+
+  errorBanner: {
+    textAlign: 'center', padding: '8px 16px', margin: '0 32px',
+    background: '#fadbd8', color: '#c0392b', borderRadius: 12,
+    fontSize: '0.85rem', fontWeight: 600,
+  },
 
   bottomBar: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '10px 24px 6px', flexShrink: 0 },
   progressArea: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 100 },

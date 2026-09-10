@@ -1,7 +1,7 @@
 """Settings router — simple key-value store for app configuration."""
 
 import logging
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..database import engine
@@ -37,3 +37,44 @@ def update_settings(body: dict, session: Session = Depends(get_session)):
         logger.info("Setting updated: %s = %s", key, value)
     session.commit()
     return {"ok": True}
+
+
+@router.get("/pin/status", response_model=dict)
+def get_pin_status(session: Session = Depends(get_session)):
+    """检查是否已设置 PIN。"""
+    row = session.exec(select(Settings).where(Settings.key == "parent_pin")).first()
+    return {"has_pin": bool(row and row.value)}
+
+
+@router.post("/pin", response_model=dict)
+def set_pin(body: dict, session: Session = Depends(get_session)):
+    """设置 PIN。"""
+    pin = body.get("pin", "")
+    if len(pin) < 4:
+        raise HTTPException(400, "PIN 至少 4 位")
+    
+    row = session.exec(select(Settings).where(Settings.key == "parent_pin")).first()
+    if row:
+        row.value = pin
+    else:
+        row = Settings(key="parent_pin", value=pin)
+    session.add(row)
+    session.commit()
+    logger.info("PIN set")
+    return {"ok": True}
+
+
+@router.post("/pin/verify", response_model=dict)
+def verify_pin(body: dict, session: Session = Depends(get_session)):
+    """验证 PIN。"""
+    pin = body.get("pin", "")
+    row = session.exec(select(Settings).where(Settings.key == "parent_pin")).first()
+    
+    if not row or not row.value:
+        # 没有设置 PIN，直接通过
+        return {"ok": True}
+    
+    if row.value == pin:
+        return {"ok": True}
+    else:
+        raise HTTPException(401, "PIN 错误")
