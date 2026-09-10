@@ -24,10 +24,12 @@ MAX_ATTEMPTS = 5
 ATTEMPT_WINDOW = 300
 _sessions: dict[str, dict] = {}
 SESSION_TTL = 86400
+MAX_SESSIONS = 1000
 
 # Challenge 存储：{challenge: {salt, created_at}}
 _challenges: dict[str, dict] = {}
 CHALLENGE_TTL = 60
+MAX_CHALLENGES = 100
 
 
 def _hash_pin(pin: str, salt: str) -> str:
@@ -37,8 +39,18 @@ def _hash_pin(pin: str, salt: str) -> str:
 
 
 def _create_session() -> str:
+    # 清理过期 session
+    now = time.time()
+    expired = [k for k, v in _sessions.items() if now - v["created_at"] > SESSION_TTL]
+    for k in expired:
+        del _sessions[k]
+    # 容量上限：删除最旧的
+    while len(_sessions) >= MAX_SESSIONS:
+        oldest = min(_sessions, key=lambda k: _sessions[k]["created_at"])
+        del _sessions[oldest]
+    
     token = secrets.token_hex(32)
-    _sessions[token] = {"created_at": time.time()}
+    _sessions[token] = {"created_at": now}
     return token
 
 
@@ -65,6 +77,11 @@ def _check_rate_limit(ip: str) -> bool:
     if len(_pin_attempts[ip]) >= MAX_ATTEMPTS:
         return False
     _pin_attempts[ip].append(now)
+    # 容量上限：清理旧IP
+    if len(_pin_attempts) > 10000:
+        old_ips = [k for k, v in _pin_attempts.items() if not v]
+        for k in old_ips[:1000]:
+            del _pin_attempts[k]
     return True
 
 
@@ -167,17 +184,21 @@ def pin_challenge(session: Session = Depends(get_session)):
     if not salt_row or not salt_row.value:
         raise HTTPException(400, "PIN 未设置")
 
-    challenge = secrets.token_hex(32)
-    _challenges[challenge] = {
-        "salt": salt_row.value,
-        "created_at": time.time(),
-    }
-
     # 清理过期 challenge
     now = time.time()
     expired = [c for c, v in _challenges.items() if now - v["created_at"] > CHALLENGE_TTL]
     for c in expired:
         del _challenges[c]
+    # 容量上限：删除最旧的
+    while len(_challenges) >= MAX_CHALLENGES:
+        oldest = min(_challenges, key=lambda k: _challenges[k]["created_at"])
+        del _challenges[oldest]
+
+    challenge = secrets.token_hex(32)
+    _challenges[challenge] = {
+        "salt": salt_row.value,
+        "created_at": now,
+    }
 
     return {"challenge": challenge, "salt": salt_row.value}
 

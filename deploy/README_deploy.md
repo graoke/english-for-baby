@@ -2,21 +2,21 @@
 
 ## 快速部署（推荐）
 
-### 方式一：Docker 部署
+### 方式一：Docker 部署（推荐）
 
 ```bash
 # 1. 克隆项目
 git clone <repo-url>
 cd english-for-baby
 
-# 2. 构建并启动
+# 2. 一键构建并启动
 cd deploy
 ./build.sh
 ```
 
-访问: `http://你的IP`
+访问: `http://你的IP`（80端口，nginx托管前端 + 反代API）
 
-### 方式二：直接部署
+### 方式二：直接部署（无Docker）
 
 ```bash
 # 1. 安装后端依赖
@@ -28,7 +28,7 @@ cd ../web
 npm install
 npm run build
 
-# 3. 启动后端
+# 3. 启动后端（自动托管前端静态文件）
 cd ..
 uvicorn server.main:app --host 0.0.0.0 --port 8001
 ```
@@ -81,8 +81,8 @@ iPad 在 HTTP 局域网访问时无法使用麦克风。解决方案：
 
 ### 模型文件
 
-- **Whisper**: 首次使用自动下载（约 500MB）
-- **MiniCPM**: 需要手动下载（约 2GB），放到 `data/models/` 目录
+- **Whisper**: 首次使用自动下载（约 500MB），下载到 `data/models/` 目录
+- **MiniCPM**: 需要手动下载 GGUF 文件（约 2GB），放到 `data/models/` 目录
 
 ### 环境变量
 

@@ -98,10 +98,12 @@ export default function Challenge({ showText, onBack }: Props) {
       
       const recorder = new MediaRecorder(stream, recorderOptions)
       chunksRef.current = []
+      const startTime = Date.now()
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        const durationMs = Date.now() - startTime
         setLastRecordingUrl(URL.createObjectURL(blob))
         setRecordingState('idle')
         setShowConfetti(true)
@@ -110,7 +112,7 @@ export default function Challenge({ showText, onBack }: Props) {
         setTimeout(() => setShowConfetti(false), 1500)
         // Fire-and-forget upload + ASR
         const fd = new FormData(); fd.append('file', blob, `recording.${recorder.mimeType?.includes('mp4') ? 'mp4' : 'webm'}`)
-        fetch(`/api/attempts?drill_item_id=${currentItem.id}`, { method: 'POST', body: fd })
+        fetch(`/api/attempts?drill_item_id=${currentItem.id}&duration_ms=${durationMs}`, { method: 'POST', body: fd })
           .catch(e => console.error('Upload failed:', e))
       }
       recorder.onerror = (e) => {
