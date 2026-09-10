@@ -245,7 +245,7 @@ iPad 在 HTTP 下不允许使用麦克风。解决方案：
 HF_ENDPOINT=https://hf-mirror.com uvicorn server.main:app --reload --port 8001
 ```
 
-或手动下载模型放到 `data/models/whisper/` 目录。
+或手动下载模型放到 `server/data/models/whisper/` 目录。
 
 ### Docker 构建失败
 
