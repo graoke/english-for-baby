@@ -116,15 +116,13 @@ TENCENT_SECRET_KEY=your_secret_key
 │   ├── database.py          # DB init
 │   ├── routers/
 │   │   ├── attempt.py       # Recording upload + ASR
-│   │   ├── history.py       # Daily stats, weak sentences, challenge
+│   │   ├── history.py       # Daily stats, weak sentences, session history
 │   │   ├── items.py         # CRUD + TTS generation
 │   │   ├── lessons.py       # Lesson management
 │   │   ├── settings.py      # Key-value settings + PIN auth
-│   │   ├── upload.py        # Image upload
-│   │   └── video.py         # Video pipeline (Phase 3)
+│   │   └── upload.py        # Image upload
 │   └── services/
 │       ├── compare.py       # Two-stage scoring (exact → MiniCPM)
-│       ├── segment.py       # Video sentence segmentation
 │       ├── transcribe.py    # faster-whisper ASR
 │       ├── tts.py           # edge-tts wrapper
 │       └── tts_tencent.py   # Tencent Cloud TTS

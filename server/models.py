@@ -11,7 +11,6 @@ from sqlmodel import SQLModel, Field
 
 class SourceType(str, Enum):
     manual = "manual"
-    video = "video"
 
 
 class ContentType(str, Enum):
@@ -33,7 +32,6 @@ class Set(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     source_type: SourceType
-    video_path: Optional[str] = None
     cover: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -66,10 +64,6 @@ class DrillItem(SQLModel, table=True):
     page_no: Optional[int] = None
     content_type: Optional[ContentType] = None
 
-    # scene 2 (video)
-    set_id: Optional[int] = Field(default=None, foreign_key="set.id")
-    start_ms: Optional[int] = None
-    end_ms: Optional[int] = None
     order_no: int = 0
 
     # shared

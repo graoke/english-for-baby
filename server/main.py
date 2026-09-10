@@ -78,7 +78,7 @@ app.include_router(history.router)
 app.include_router(settings.router)
 
 # Serve static files (audio, images, recordings)
-for subdir in ("audio", "images", "videos", "recordings"):
+for subdir in ("audio", "images", "recordings"):
     d = DATA_DIR / subdir
     d.mkdir(parents=True, exist_ok=True)
     app.mount(f"/data/{subdir}", StaticFiles(directory=str(d)), name=subdir)
