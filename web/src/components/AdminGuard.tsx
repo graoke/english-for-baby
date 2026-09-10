@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react'
+import { SRPClient } from '../utils/srp'
+
+const TOKEN_KEY = 'peppa_session_token'
 
 interface Props {
   children: React.ReactNode
+}
+
+function getToken(): string | null {
+  return sessionStorage.getItem(TOKEN_KEY)
+}
+
+function setToken(token: string) {
+  sessionStorage.setItem(TOKEN_KEY, token)
+}
+
+function clearToken() {
+  sessionStorage.removeItem(TOKEN_KEY)
+}
+
+export function getSessionToken(): string | null {
+  return getToken()
 }
 
 export default function AdminGuard({ children }: Props) {
@@ -11,67 +30,142 @@ export default function AdminGuard({ children }: Props) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [isSettingPin, setIsSettingPin] = useState(false)
+  const [srpSessionId, setSrpSessionId] = useState<string | null>(null)
 
   useEffect(() => {
-    // 检查是否已设置 PIN
+    const token = getToken()
+    if (token) {
+      fetch('/api/settings', {
+        headers: { 'X-Session-Token': token }
+      }).then(r => {
+        if (r.ok) {
+          setIsAuthenticated(true)
+        } else {
+          clearToken()
+          checkPinStatus()
+        }
+        setLoading(false)
+      }).catch(() => {
+        setLoading(false)
+      })
+    } else {
+      checkPinStatus()
+    }
+  }, [])
+
+  const checkPinStatus = () => {
     fetch('/api/settings/pin/status')
       .then(r => r.json())
       .then(data => {
-        if (!data.has_pin) {
-          // 未设置 PIN，进入设置模式
-          setIsSettingPin(true)
-          setShowPinInput(true)
-        }
+        setIsSettingPin(!data.has_pin)
+        setShowPinInput(true)
         setLoading(false)
       })
       .catch(() => {
-        // 出错也允许进入（兼容旧版本）
         setIsAuthenticated(true)
         setLoading(false)
       })
-  }, [])
+  }
 
-  const handleSetPin = () => {
+  const handleSetPin = async () => {
     if (pin.length < 4) {
       setError('PIN 至少 4 位')
       return
     }
-    fetch('/api/settings/pin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin })
-    })
-      .then(r => r.json())
-      .then(() => {
-        setIsAuthenticated(true)
+    
+    try {
+      const res = await fetch('/api/settings/pin/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
       })
-      .catch(() => setError('设置失败'))
+      
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.detail || '设置失败')
+      }
+      
+      const data = await res.json()
+      if (data.token) {
+        setToken(data.token)
+      }
+      setIsAuthenticated(true)
+    } catch (e: any) {
+      setError(e.message)
+    }
   }
 
-  const handleVerifyPin = () => {
-    fetch('/api/settings/pin/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin })
-    })
-      .then(r => {
-        if (r.ok) {
-          setIsAuthenticated(true)
-          setError('')
-        } else {
-          setError('PIN 错误')
-        }
+  const handleVerifyPin = async () => {
+    try {
+      // SRP 第一步：生成 A
+      const srp = new SRPClient()
+      srp.setPassword(pin)
+      const A = await srp.startAuthentication()
+      
+      // 发送 A 到服务器，获取 salt 和 B
+      const startRes = await fetch('/api/settings/pin/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ A })
       })
-      .catch(() => setError('验证失败'))
+      
+      if (!startRes.ok) {
+        const data = await startRes.json()
+        throw new Error(data.detail || '认证失败')
+      }
+      
+      const { session_id, salt, B } = await startRes.json()
+      
+      // SRP 第二步：处理挑战，生成 M
+      const M = await srp.processChallenge(salt, B)
+      
+      // 发送 M 到服务器，获取 HAMK 和 token
+      const verifyRes = await fetch('/api/settings/pin/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id, M })
+      })
+      
+      if (!verifyRes.ok) {
+        if (verifyRes.status === 429) {
+          throw new Error('尝试次数过多，请稍后再试')
+        }
+        throw new Error('PIN 错误')
+      }
+      
+      const { HAMK, token } = await verifyRes.json()
+      
+      // SRP 第三步：验证服务器
+      const verified = await srp.verifyServer(HAMK)
+      if (!verified) {
+        throw new Error('服务器验证失败')
+      }
+      
+      // 认证成功
+      if (token) {
+        setToken(token)
+      }
+      setIsAuthenticated(true)
+      setError('')
+    } catch (e: any) {
+      setError(e.message)
+    }
   }
 
   const handleLogout = () => {
+    const token = getToken()
+    if (token) {
+      fetch('/api/settings/pin/logout', {
+        method: 'POST',
+        headers: { 'X-Session-Token': token }
+      }).catch(() => {})
+    }
+    clearToken()
     setIsAuthenticated(false)
     setShowPinInput(true)
     setPin('')
   }
 
-  // 暴露 logout 方法给父组件
   useEffect(() => {
     ;(window as any).__peppaParentLogout = handleLogout
     return () => {

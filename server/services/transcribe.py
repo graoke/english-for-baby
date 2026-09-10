@@ -19,14 +19,28 @@ def _get_model():
     if _model is None:
         from faster_whisper import WhisperModel
         
-        # 从环境变量读取模型路径，默认使用 data/models/whisper
-        model_path = os.environ.get("WHISPER_MODEL_PATH", DEFAULT_WHISPER_PATH)
+        # 从环境变量读取模型路径
+        model_path = os.environ.get("WHISPER_MODEL_PATH", "")
         
-        # 确保目录存在
-        Path(model_path).mkdir(parents=True, exist_ok=True)
+        # 判断是否使用本地已转换模型
+        use_local = False
+        if model_path:
+            model_dir = Path(model_path)
+            # 只有目录存在且非空（有模型文件）才用本地路径
+            if model_dir.exists() and any(model_dir.iterdir()):
+                use_local = True
         
-        logger.info("Loading whisper model: %s (cpu, int8)", model_path)
-        _model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        if use_local:
+            logger.info("Loading whisper model from local: %s (cpu, int8)", model_path)
+            _model = WhisperModel(model_path, device="cpu", compute_type="int8")
+        else:
+            # 传模型名，faster-whisper 会自动下载
+            # download_root 指定下载目录，避免散落各处
+            download_root = str(Path(__file__).parent.parent.parent / "data" / "models")
+            Path(download_root).mkdir(parents=True, exist_ok=True)
+            logger.info("Loading whisper model: small (cpu, int8), download_root=%s", download_root)
+            _model = WhisperModel("small", device="cpu", compute_type="int8", download_root=download_root)
+        
         logger.info("Whisper model loaded")
     return _model
 
