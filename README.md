@@ -9,7 +9,8 @@ Family self-hosted web app for 5-year-old English reading practice.
 - **Completion Scoring**: Bag-of-words with fuzzy matching — answers "did the child read all the words?" (parent-only)
 - **Daily Chart**: Line chart with dual Y-axes (count + score), date range picker
 - **Celebration**: Confetti & stickers regardless of performance — scores are for parents only
-- **Parent PIN Protection**: Simple PIN to protect parent dashboard
+- **Parent PIN Protection**: PBKDF2 challenge-response auth to protect parent dashboard
+- **Recordings Auth**: Child recordings require parent auth to access (not publicly exposed)
 
 ## Architecture
 
@@ -82,6 +83,11 @@ WHISPER_MODEL_PATH=./data/models/whisper
 # Tencent Cloud TTS (optional, more stable)
 TENCENT_SECRET_ID=your_secret_id
 TENCENT_SECRET_KEY=your_secret_key
+
+# ── CORS ────────────────────────────────────────────────────
+
+# Comma-separated origins (leave empty for dev defaults)
+# CORS_ORIGINS=http://localhost:80,http://192.168.1.100
 ```
 
 ### Model Info
@@ -99,12 +105,12 @@ TENCENT_SECRET_KEY=your_secret_key
 │   ├── schemas.py           # Pydantic request schemas
 │   ├── database.py          # DB init
 │   ├── routers/
-│   │   ├── attempt.py       # Recording upload + ASR
+│   │   ├── attempt.py       # Recording upload + ASR (auth required)
 │   │   ├── history.py       # Daily stats, weak sentences, session history
-│   │   ├── items.py         # CRUD + TTS generation
+│   │   ├── items.py         # CRUD + TTS generation (auth required)
 │   │   ├── lessons.py       # Lesson management
 │   │   ├── settings.py      # Key-value settings + PIN auth
-│   │   └── upload.py        # Image upload
+│   │   └── upload.py        # Image upload (auth required)
 │   └── services/
 │       ├── compare.py       # Completion scoring (bag-of-words)
 │       ├── transcribe.py    # faster-whisper ASR
@@ -129,11 +135,24 @@ TENCENT_SECRET_KEY=your_secret_key
 │   ├── models/              # AI models (whisper)
 │   ├── audio/               # Generated TTS audio
 │   ├── images/              # Uploaded images
-│   ├── recordings/          # Child recordings
+│   ├── recordings/          # Child recordings (auth required)
 │   └── logs/                # Application logs
+├── deploy/                  # Deployment configs
+│   ├── Dockerfile           # Multi-stage build (frontend + backend)
+│   ├── docker-compose.yml   # Docker Compose orchestration
+│   ├── nginx.conf           # Nginx reverse proxy config
+│   ├── build.sh             # One-click deploy script
+│   └── README_deploy.md     # LAN deployment guide
 ├── .env                     # Environment variables
 └── README.md
 ```
+
+## Security
+
+- **Parent auth**: PBKDF2-SHA256 challenge-response, session tokens, rate limiting
+- **Recordings**: Require parent auth to access (header token or query param)
+- **TTS generation**: Requires parent auth (prevents API abuse)
+- **File uploads**: 10MB size limit on recordings and images
 
 ## Browser Compatibility
 
@@ -142,11 +161,9 @@ TENCENT_SECRET_KEY=your_secret_key
 - **Safari/iOS**: Requires HTTPS or localhost for microphone access
   - Uses MP4 audio format instead of WebM
 
-## Parent Features
+## Deployment
 
-- View practice history with "读出 X / Y 个词" and missed words
-- PIN protection (stored in database)
-- Configure TTS mode and display settings
+See [deploy/README_deploy.md](deploy/README_deploy.md) for LAN deployment with Docker.
 
 ## License
 

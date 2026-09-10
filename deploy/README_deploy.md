@@ -14,9 +14,11 @@ cd deploy
 ./build.sh
 ```
 
-访问: `http://你的IP`（80端口，nginx托管前端 + 反代API）
+脚本会自动：构建前端 → Docker 构建后端 → 启动服务
 
-### 方式二：直接部署（无Docker）
+访问: `http://你的IP`（80 端口，nginx 托管前端 + 反代 API）
+
+### 方式二：直接部署（无 Docker）
 
 ```bash
 # 1. 安装后端依赖
@@ -28,12 +30,14 @@ cd ../web
 npm install
 npm run build
 
-# 3. 启动后端（自动托管前端静态文件）
+# 3. 启动后端
 cd ..
 uvicorn server.main:app --host 0.0.0.0 --port 8001
 ```
 
-访问: `http://你的IP:8001`
+> ⚠️ 方式二只提供 API 服务（端口 8001），前端需要单独部署（如 nginx）或使用 `npm run dev` 开发模式。
+
+访问: `http://你的IP:8001`（仅 API，无前端页面）
 
 ## 获取局域网 IP
 
@@ -65,7 +69,7 @@ iPad 在 HTTP 局域网访问时无法使用麦克风。解决方案：
    ```bash
    # 生成自签名证书
    openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
-   
+
    # 使用 uvicorn 的 SSL 支持
    uvicorn server.main:app --host 0.0.0.0 --port 8001 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
    ```
@@ -82,7 +86,7 @@ iPad 在 HTTP 局域网访问时无法使用麦克风。解决方案：
 ### 模型文件
 
 - **Whisper**: 首次使用自动下载（约 500MB），下载到 `data/models/` 目录
-- **MiniCPM**: 需要手动下载 GGUF 文件（约 2GB），放到 `data/models/` 目录
+- 无需手动下载其他模型
 
 ### 环境变量
 
@@ -98,6 +102,7 @@ cp .env.example .env
 1. **使用反向代理**
    ```bash
    # Nginx 配置示例见 deploy/nginx.conf
+   # 已配置 client_max_body_size 10m 支持录音上传
    ```
 
 2. **配置 HTTPS**
@@ -115,3 +120,16 @@ cp .env.example .env
    # 重要数据在 data/ 目录
    tar -czf peppa_backup_$(date +%Y%m%d).tar.gz data/
    ```
+
+## 架构说明
+
+Docker 部署包含两个容器：
+
+| 容器 | 端口 | 职责 |
+|------|------|------|
+| `peppa-backend` | 8001 | FastAPI 后端（API + 鉴权录音流式端点） |
+| `peppa-nginx` | 80 | 前端静态文件 + API 反向代理 |
+
+- 前端构建产物在 Docker 构建时打包进镜像，通过 nginx 提供服务
+- `/api/*` 和 `/data/*` 请求反代到后端
+- 录音文件（`/data/recordings/*`）需要鉴权才能访问
