@@ -105,7 +105,7 @@ TENCENT_SECRET_KEY=your_secret_key
 │   ├── schemas.py           # Pydantic request schemas
 │   ├── database.py          # DB init
 │   ├── routers/
-│   │   ├── attempt.py       # Recording upload + ASR (auth required)
+│   │   ├── attempt.py       # Recording upload + ASR (auth-free by design — child uploads)
 │   │   ├── history.py       # Daily stats, weak sentences, session history
 │   │   ├── items.py         # CRUD + TTS generation (auth required)
 │   │   ├── lessons.py       # Lesson management
