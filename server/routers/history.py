@@ -2,7 +2,7 @@
 
 import json
 import random
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select, func, col
@@ -18,13 +18,13 @@ def get_session():
         yield session
 
 
-@router.get("", response_model=List[dict])
-def get_practice_history(session: Session = Depends(get_session)):
-    """Return practice history grouped by lesson.
-
-    Each entry = one lesson session, with the sentences practiced (last attempt per sentence),
-    recordings, and AI assessment.
-    """
+@router.get("", response_model=dict)
+def get_practice_history(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: Session = Depends(get_session),
+):
+    """Return practice history grouped by lesson, with pagination."""
     # Fetch all attempts with joined item + lesson info
     stmt = (
         select(Attempt, DrillItem, Lesson)
@@ -36,10 +36,9 @@ def get_practice_history(session: Session = Depends(get_session)):
 
     # Group by (lesson_id, date) to create sessions
     from collections import OrderedDict
-    import json
     from datetime import datetime
 
-    sessions = OrderedDict()  # key = (lesson_id, date_str)
+    sessions = OrderedDict()
 
     for attempt, item, lesson in rows:
         date_str = attempt.created_at.strftime("%Y-%m-%d %H:%M")
@@ -53,7 +52,7 @@ def get_practice_history(session: Session = Depends(get_session)):
                 "date": date_day,
                 "first_time": date_str,
                 "last_time": date_str,
-                "sentences": {},  # item_id -> attempt info (keep last)
+                "sentences": {},
                 "total_attempts": 0,
             }
 
@@ -61,7 +60,6 @@ def get_practice_history(session: Session = Depends(get_session)):
         s["total_attempts"] += 1
         s["last_time"] = date_str
 
-        # Keep only the last attempt per sentence (item_id)
         hit_words = None
         if attempt.hit_words:
             try:
@@ -83,12 +81,11 @@ def get_practice_history(session: Session = Depends(get_session)):
         }
 
     # Convert to list and flatten sentences
-    result = []
+    all_sessions = []
     for s in sessions.values():
         sentence_list = list(s["sentences"].values())
-        # Sort by time
         sentence_list.sort(key=lambda x: x["time"])
-        result.append({
+        all_sessions.append({
             "lesson_id": s["lesson_id"],
             "lesson_title": s["lesson_title"],
             "date": s["date"],
@@ -99,7 +96,15 @@ def get_practice_history(session: Session = Depends(get_session)):
             "sentences": sentence_list,
         })
 
-    return result
+    total = len(all_sessions)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "items": all_sessions[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/stats", response_model=dict)
@@ -110,12 +115,10 @@ def get_stats(session: Session = Depends(get_session)):
         select(func.count(Lesson.id)).where(Lesson.enabled == True)
     ).one()
 
-    # Unique practice days
     stmt = select(Attempt.created_at)
     all_times = session.exec(stmt).all()
     unique_days = set(t.strftime("%Y-%m-%d") for t in all_times) if all_times else set()
 
-    # Average hit ratio (scene 1 only)
     stmt2 = select(func.avg(Attempt.hit_ratio)).where(Attempt.hit_ratio.is_not(None))
     avg_hit = session.exec(stmt2).one()
 
@@ -157,9 +160,7 @@ def get_weak_sentences(
     session: Session = Depends(get_session),
 ):
     """Return sentences where the child's average score is below the threshold.
-
-    Once a sentence's avg exceeds the threshold, it drops off this list.
-    Returns the weakest attempt's audio for playback.
+    Fixed N+1: use single query to get last attempt per item.
     """
     # Subquery: avg hit_ratio per drill_item
     subq = (
@@ -173,7 +174,28 @@ def get_weak_sentences(
         .having(func.avg(Attempt.hit_ratio) < threshold)
     ).subquery()
 
-    # Join with drill_item and lesson for text info
+    # Get last attempt per item in one query (no N+1)
+    last_attempt_sq = (
+        select(
+            Attempt.drill_item_id,
+            Attempt.audio_path,
+            Attempt.created_at,
+        )
+        .where(Attempt.audio_path.is_not(None))
+        .order_by(Attempt.created_at.desc())
+    ).subquery()
+
+    # Only keep the latest attempt per item
+    latest = (
+        select(
+            last_attempt_sq.c.drill_item_id,
+            last_attempt_sq.c.audio_path,
+            func.max(last_attempt_sq.c.created_at).label("max_created"),
+        )
+        .group_by(last_attempt_sq.c.drill_item_id)
+    ).subquery()
+
+    # Main query
     stmt = (
         select(
             subq.c.drill_item_id,
@@ -182,33 +204,27 @@ def get_weak_sentences(
             DrillItem.text,
             DrillItem.text_zh,
             DrillItem.image_path,
+            latest.c.audio_path,
         )
         .join(DrillItem, DrillItem.id == subq.c.drill_item_id)
+        .outerjoin(latest, latest.c.drill_item_id == subq.c.drill_item_id)
         .where(DrillItem.enabled == True)
         .order_by(subq.c.avg_ratio)
     )
     rows = session.exec(stmt).all()
 
-    result = []
-    for row in rows:
-        # Get the last attempt's audio (child's recording) for playback
-        last_attempt = session.exec(
-            select(Attempt)
-            .where(Attempt.drill_item_id == row.drill_item_id, Attempt.audio_path.is_not(None))
-            .order_by(Attempt.created_at.desc())
-            .limit(1)
-        ).first()
-        result.append({
+    return [
+        {
             "item_id": row.drill_item_id,
             "text": row.text,
             "text_zh": row.text_zh,
             "image_path": row.image_path,
-            "audio_path": last_attempt.audio_path if last_attempt else None,
+            "audio_path": row.audio_path,
             "avg_hit_ratio": round(float(row.avg_ratio), 3),
             "attempt_count": row.attempt_count,
-        })
-
-    return result
+        }
+        for row in rows
+    ]
 
 
 @router.get("/challenge", response_model=List[dict])
@@ -217,57 +233,72 @@ def get_challenge_sentences(
     session: Session = Depends(get_session),
 ):
     """Return random weak sentences for child's challenge mode.
-
-    Picks sentences where the average of the LAST 3 recordings is below 70%.
-    Weighted by weakness (lower score = higher chance of being picked).
+    Fixed N+1: use single query with window function.
     """
-    # Subquery: get last 3 attempts per drill_item
-    from sqlalchemy import func as sa_func, desc
-    
-    # Get drill_items that have at least 1 attempt
-    items_with_attempts = (
-        select(Attempt.drill_item_id)
+    from sqlalchemy import desc as sa_desc
+    from sqlalchemy import func as sa_func
+
+    # Window function: row number per item ordered by time desc
+    from sqlalchemy import literal_column
+    row_num_stmt = (
+        select(
+            Attempt.drill_item_id,
+            Attempt.hit_ratio,
+            sa_func.row_number().over(
+                partition_by=Attempt.drill_item_id,
+                order_by=sa_desc(Attempt.created_at)
+            ).label("rn"),
+        )
         .where(Attempt.hit_ratio.is_not(None))
-        .group_by(Attempt.drill_item_id)
     ).subquery()
-    
-    # For each item, get the avg of last 3 attempts
-    result_items = []
-    item_ids_list = session.exec(select(items_with_attempts.c.drill_item_id)).all()
-    for item_id in item_ids_list:
-        last_3 = session.exec(
-            select(Attempt.hit_ratio)
-            .where(Attempt.drill_item_id == item_id, Attempt.hit_ratio.is_not(None))
-            .order_by(Attempt.created_at.desc())
-            .limit(3)
-        ).all()
-        if last_3:
-            avg_recent = sum(last_3) / len(last_3)
-            if avg_recent < 0.7:  # Below 70%
-                result_items.append((item_id, avg_recent, len(last_3)))
-    
-    if not result_items:
-        return []
-    
-    # Get item details
-    item_ids = [r[0] for r in result_items]
-    items = session.exec(
-        select(DrillItem).where(DrillItem.id.in_(item_ids), DrillItem.enabled == True)
-    ).all()
-    items_map = {item.id: item for item in items}
-    
-    # Weight by weakness: lower score = higher weight
+
+    # Only keep last 3 per item
+    last_3_stmt = (
+        select(
+            row_num_stmt.c.drill_item_id,
+            row_num_stmt.c.hit_ratio,
+        )
+        .where(row_num_stmt.c.rn <= 3)
+    ).subquery()
+
+    # Average of last 3 per item
+    avg_stmt = (
+        select(
+            last_3_stmt.c.drill_item_id,
+            sa_func.avg(last_3_stmt.c.hit_ratio).label("avg_recent"),
+            sa_func.count().label("cnt"),
+        )
+        .group_by(last_3_stmt.c.drill_item_id)
+        .having(sa_func.avg(last_3_stmt.c.hit_ratio) < 0.7)
+    ).subquery()
+
+    # Join with DrillItem
+    stmt = (
+        select(
+            avg_stmt.c.drill_item_id,
+            avg_stmt.c.avg_recent,
+            avg_stmt.c.cnt,
+            DrillItem.text,
+            DrillItem.text_zh,
+            DrillItem.image_path,
+            DrillItem.tts_path,
+        )
+        .join(DrillItem, DrillItem.id == avg_stmt.c.drill_item_id)
+        .where(DrillItem.enabled == True)
+    )
+    rows = session.exec(stmt).all()
+
+    # Weight by weakness
     items_pool = []
     weights = []
-    for item_id, avg_recent, attempt_count in result_items:
-        if item_id in items_map:
-            weight = max(1, int((0.7 - avg_recent) * 100))
-            items_pool.append((items_map[item_id], avg_recent))
-            weights.append(weight)
-    
+    for row in rows:
+        weight = max(1, int((0.7 - row.avg_recent) * 100))
+        items_pool.append(row)
+        weights.append(weight)
+
     if not items_pool:
         return []
-    
+
     pick_count = min(count, len(items_pool))
     selected_indices = random.choices(range(len(items_pool)), weights=weights, k=pick_count)
     seen = set()
@@ -276,14 +307,14 @@ def get_challenge_sentences(
         if idx in seen:
             continue
         seen.add(idx)
-        item, avg_recent = items_pool[idx]
+        row = items_pool[idx]
         result.append({
-            "id": item.id,
-            "text": item.text,
-            "text_zh": item.text_zh,
-            "image_path": item.image_path,
-            "tts_path": item.tts_path,
-            "avg_hit_ratio": round(float(avg_recent), 3),
+            "id": row.drill_item_id,
+            "text": row.text,
+            "text_zh": row.text_zh,
+            "image_path": row.image_path,
+            "tts_path": row.tts_path,
+            "avg_hit_ratio": round(float(row.avg_recent), 3),
         })
 
     random.shuffle(result)

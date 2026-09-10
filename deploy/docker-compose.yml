@@ -1,17 +1,31 @@
+version: "3.8"
+
 services:
   backend:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     container_name: peppa-backend
+    restart: unless-stopped
     ports:
       - "8001:8001"
     volumes:
-      # 数据目录（与 database.py 的 DATA_DIR 一致：/app/server/data）
       - ../server/data:/app/server/data
     environment:
+      - PORT=8001
+      - PUBLIC_URL=http://localhost:8001
+      - WHISPER_MODEL_PATH=/app/server/data/models
       - MINICPM_GGUF_PATH=/app/server/data/models/minicpm-phonetic-evaluator-q4_k_m.gguf
-      # 腾讯云 TTS（可选）
-      - TENCENT_SECRET_ID=${TENCENT_SECRET_ID:-}
-      - TENCENT_SECRET_KEY=${TENCENT_SECRET_KEY:-}
+
+  nginx:
+    image: nginx:alpine
+    container_name: peppa-nginx
     restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../web/dist:/usr/share/nginx/html:ro
+      - ../server/data:/data:ro
+      - ../deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend

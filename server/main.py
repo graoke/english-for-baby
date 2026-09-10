@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import init_db, DATA_DIR
-from .routers import lessons, items, attempt, video, upload, history, settings
+from .routers import lessons, items, attempt, upload, history, settings
 
 # ── Logging setup ──────────────────────────────────────────────
 LOG_DIR = DATA_DIR / "logs"
@@ -52,10 +52,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
+# CORS — read origins from env, fallback to dev defaults
+import os
+_cors_env = os.environ.get("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else [
+    "http://localhost:5174", "http://127.0.0.1:5174",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:80", "http://127.0.0.1:80",
+    "http://localhost:8001", "http://127.0.0.1:8001",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,7 +73,6 @@ app.add_middleware(
 app.include_router(lessons.router)
 app.include_router(items.router)
 app.include_router(attempt.router)
-app.include_router(video.router)
 app.include_router(upload.router)
 app.include_router(history.router)
 app.include_router(settings.router)

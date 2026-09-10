@@ -1,12 +1,13 @@
-"""Two-stage comparison: exact match → MiniCPM phonetic evaluator (GGUF)."""
+"""Two-stage comparison: sequence alignment → MiniCPM phonetic evaluator (GGUF)."""
 
 import logging
 import os
 import re
 import threading
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Set
+from typing import List
 
 logger = logging.getLogger("peppa.compare")
 
@@ -22,32 +23,48 @@ CONTRACTIONS = {
     "you'll": "you will", "he'll": "he will", "she'll": "she will",
     "we'll": "we will", "they'll": "they will", "i'd": "i would",
     "you'd": "you would", "he'd": "he would", "she'd": "she would",
-    "we'd": "we would", "they'd": "they would", "that's": "that is",
+    "we'd": "you would", "they'd": "they would", "that's": "that is",
     "who's": "who is", "what's": "what is", "where's": "where is",
     "when's": "when is", "how's": "how is",
 }
 
-# 默认模型路径（相对于项目根目录）
 DEFAULT_GGUF_PATH = str(Path(__file__).parent.parent.parent / "data" / "models" / "minicpm-phonetic-evaluator-q4_k_m.gguf")
 
 
 def _get_gguf_path() -> str:
-    """从环境变量获取 MiniCPM GGUF 模型路径。"""
     return os.environ.get("MINICPM_GGUF_PATH", DEFAULT_GGUF_PATH)
 
 
-def normalize(text: str) -> Set[str]:
+def normalize(text: str) -> List[str]:
+    """返回词列表（保留顺序）。"""
     t = text.lower().strip()
     for contraction, expanded in CONTRACTIONS.items():
         t = t.replace(contraction, expanded)
     t = re.sub(r"[^a-z0-9\s]", "", t)
-    return set(t.split())
+    return t.split()
+
+
+def score(target: List[str], transcript: List[str]) -> float:
+    """序列对齐评分，考虑词序。"""
+    if not target:
+        return 1.0
+    matcher = SequenceMatcher(None, target, transcript, autojunk=False)
+    return sum(size for _, _, size in matcher.get_matching_blocks()) / len(target)
+
+
+def find_hit_missed(target: List[str], transcript: List[str]) -> tuple:
+    """找出命中的词和遗漏的词，保留词序。"""
+    target_set = set(target)
+    transcript_set = set(transcript)
+    hit = [w for w in target if w in transcript_set]
+    missed = [w for w in target if w not in transcript_set]
+    return hit, missed
 
 
 # ── MiniCPM GGUF (lazy load, thread-safe) ─────────────────────
 _llm = None
 _llm_lock = threading.Lock()
-_infer_lock = threading.Lock()  # Separate lock for inference (GGUF not thread-safe)
+_infer_lock = threading.Lock()
 
 
 def _load_llm():
@@ -59,8 +76,6 @@ def _load_llm():
             return
         
         gguf_path = _get_gguf_path()
-        
-        # 检查模型文件是否存在
         if not Path(gguf_path).exists():
             raise FileNotFoundError(
                 f"MiniCPM GGUF model not found at {gguf_path}\n"
@@ -80,7 +95,6 @@ def _load_llm():
 
 
 def _minicpm_judge(target: str, transcript: str) -> bool:
-    """Ask MiniCPM GGUF if transcript is a valid phonetic match for target."""
     _load_llm()
 
     prompt = f"""### Instruction:
@@ -110,7 +124,7 @@ Target: {target} | ASR: {transcript}
 
 
 def compare(target: str, transcript: str) -> dict:
-    """Two-stage comparison: exact match first, then MiniCPM judge."""
+    """两阶段对比：序列对齐 → MiniCPM 语音评估。"""
     target_words = normalize(target)
     transcript_words = normalize(transcript)
 
@@ -123,45 +137,43 @@ def compare(target: str, transcript: str) -> dict:
             "target_word_count": 0, "method": "exact",
         }
 
-    # Stage 1: exact word match
-    hit = target_words & transcript_words
-    missed = target_words - transcript_words
-    exact_ratio = len(hit) / len(target_words)
+    # Stage 1: 序列对齐
+    ratio = score(target_words, transcript_words)
+    hit, missed = find_hit_missed(target_words, transcript_words)
 
-    if exact_ratio >= 1.0:
+    if ratio >= 1.0:
         logger.info("Exact match → True")
         return {
-            "hit_ratio": 1.0, "hit_words": sorted(hit), "missed_words": [],
+            "hit_ratio": 1.0, "hit_words": hit, "missed_words": [],
             "target_word_count": len(target_words), "method": "exact",
         }
 
-    # Stage 2: MiniCPM judge for each missed word
-    minicpm_hit = set(hit)
+    # Stage 2: MiniCPM 对遗漏的词做语音评估
+    minicpm_hit = list(hit)
     t0 = time.time()
     for w in missed:
         try:
             if _minicpm_judge(w, transcript):
-                minicpm_hit.add(w)
+                minicpm_hit.append(w)
         except Exception as e:
             logger.exception("MiniCPM judge exception for word %r", w)
 
-    new_missed = target_words - minicpm_hit
     final_ratio = len(minicpm_hit) / len(target_words)
+    new_missed = [w for w in target_words if w not in minicpm_hit]
 
     logger.info("Final (%.2fs): hit=%s, missed=%s, ratio=%.3f, method=minicpm",
                 time.time() - t0, minicpm_hit, new_missed, final_ratio)
 
     return {
         "hit_ratio": round(final_ratio, 3),
-        "hit_words": sorted(minicpm_hit),
-        "missed_words": sorted(new_missed),
+        "hit_words": minicpm_hit,
+        "missed_words": new_missed,
         "target_word_count": len(target_words),
         "method": "minicpm",
     }
 
 
 def preload_minicpm():
-    """Pre-load MiniCPM GGUF in background thread to avoid blocking first request."""
     def _bg():
         try:
             _load_llm()

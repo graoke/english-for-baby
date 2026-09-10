@@ -82,6 +82,7 @@ def list_attempts(drill_item_id: int = None, session: Session = Depends(get_sess
 async def create_attempt(
     drill_item_id: int,
     file: UploadFile = File(...),
+    duration_ms: int = 0,
     session: Session = Depends(get_session),
 ):
     """Upload recording, run comparison in background thread, save attempt.
@@ -89,8 +90,8 @@ async def create_attempt(
     Children ALWAYS see confetti — the comparison result is for parents only.
     """
     t_start = time.time()
-    logger.info("Upload start: drill_item_id=%d, filename=%s, size=%s",
-                drill_item_id, file.filename, file.size)
+    logger.info("Upload start: drill_item_id=%d, filename=%s, size=%s, duration_ms=%d",
+                drill_item_id, file.filename, file.size, duration_ms)
 
     # Save recording file
     ext = Path(file.filename or "recording.webm").suffix or ".webm"
@@ -134,7 +135,7 @@ async def create_attempt(
         asr_text=asr_text,
         hit_words=json.dumps(hit_words) if hit_words else None,
         hit_ratio=hit_ratio,
-        duration_ms=0,
+        duration_ms=duration_ms,
     )
     session.add(attempt)
     session.commit()

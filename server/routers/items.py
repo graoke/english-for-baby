@@ -21,6 +21,10 @@ def get_session():
         yield session
 
 
+# 导入鉴权依赖
+from .settings import require_parent
+
+
 @router.get("", response_model=List[dict])
 def list_items(lesson_id: int = None, session: Session = Depends(get_session)):
     q = select(DrillItem).where(DrillItem.enabled == True)
@@ -45,7 +49,7 @@ def list_items(lesson_id: int = None, session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=dict)
-def create_item(body: dict, session: Session = Depends(get_session)):
+def create_item(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     item = DrillItem(
         source_type=body.get("source_type", SourceType.manual),
         lesson_id=body.get("lesson_id"),
@@ -72,7 +76,7 @@ def create_item(body: dict, session: Session = Depends(get_session)):
 
 
 @router.post("/batch", response_model=dict)
-def batch_create_items(body: dict, session: Session = Depends(get_session)):
+def batch_create_items(body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     """Batch create items from multiline text. body: {lesson_id, lines: [{text, text_zh?}]}"""
     lesson_id = body["lesson_id"]
     lines = body["lines"]
@@ -105,7 +109,7 @@ def batch_create_items(body: dict, session: Session = Depends(get_session)):
 
 
 @router.put("/{item_id}", response_model=dict)
-def update_item(item_id: int, body: dict, session: Session = Depends(get_session)):
+def update_item(item_id: int, body: dict, session: Session = Depends(get_session), _=Depends(require_parent)):
     item = session.get(DrillItem, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
@@ -123,7 +127,7 @@ def update_item(item_id: int, body: dict, session: Session = Depends(get_session
 
 
 @router.delete("/{item_id}")
-def delete_item(item_id: int, session: Session = Depends(get_session)):
+def delete_item(item_id: int, session: Session = Depends(get_session), _=Depends(require_parent)):
     item = session.get(DrillItem, item_id)
     if not item:
         raise HTTPException(404, "Item not found")
