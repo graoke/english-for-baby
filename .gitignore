@@ -12,3 +12,4 @@ server/data/
 *.db
 *.sqlite
 .idea/
+*.pem

@@ -55,6 +55,8 @@ import os
 _cors_env = os.environ.get("CORS_ORIGINS", "")
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else [
     "http://localhost:5174", "http://127.0.0.1:5174",
+    "https://localhost:5174", "https://127.0.0.1:5174",
+    "https://192.168.1.104:5174",
     "http://localhost:5173", "http://127.0.0.1:5173",
     "http://localhost:80", "http://127.0.0.1:80",
     "http://localhost:8001", "http://127.0.0.1:8001",

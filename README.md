@@ -64,9 +64,9 @@ cp .env.example .env
 cd server
 uvicorn server.main:app --reload --port 8001
 
-# Frontend
+# Frontend (HTTPS — required for microphone on LAN devices)
 cd web
-npm run dev  # → http://localhost:5174
+npm run dev -- --host  # → https://192.168.x.x:5174
 ```
 
 ## Environment Variables
@@ -110,11 +110,13 @@ HF_ENDPOINT=https://hf-mirror.com uvicorn server.main:app --reload --port 8001
 
 ## CORS 配置（局域网非 Docker 部署）
 
-用 `npm run dev` 开发或直接 `uvicorn` 部署时，需要在 `.env` 中配置 CORS 允许局域网设备访问：
+用 `npm run dev -- --host` 开发时，Vite 自带 HTTPS（mkcert 证书），前端和 API 走同一个域名，无需额外配置 CORS。
+
+直接 `uvicorn` 部署时，需要在 `.env` 中配置 CORS 允许局域网设备访问：
 
 ```bash
-# 假设你的局域网 IP 是 192.168.1.100，iPad 通过 http://192.168.1.100:8001 访问
-CORS_ORIGINS=http://localhost:5173,http://localhost:8001,http://192.168.1.100,http://192.168.1.100:8001
+# 假设你的局域网 IP 是 192.168.1.100
+CORS_ORIGINS=https://localhost:5174,https://192.168.1.100:5174,http://localhost:8001
 ```
 
 > Docker 部署（nginx 反代）不需要配置 CORS，因为前端和 API 走同一个域名。
@@ -232,10 +234,13 @@ See [deploy/README_deploy.md](deploy/README_deploy.md) for LAN deployment with D
 
 ### iPad Safari 无法录音
 
-iPad 在 HTTP 下不允许使用麦克风。解决方案：
-1. 使用 HTTPS（自签名证书或 Let's Encrypt）
-2. 使用 ngrok 隧道：`ngrok http 8001`
-3. 只用 Chrome/Edge 浏览器
+本项目默认启用 HTTPS（mkcert 证书），局域网内所有浏览器均可录音。
+
+首次访问时浏览器会提示"不安全"，点击"高级" → "继续前往"即可。如需完全消除警告：
+
+```bash
+mkcert -install  # 需要输入系统密码，将本地 CA 加入信任列表
+```
 
 ### Whisper 模型下载失败 / 很慢
 
