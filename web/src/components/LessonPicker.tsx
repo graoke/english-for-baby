@@ -47,7 +47,7 @@ export default function LessonPicker({ onSelect, onChallenge }: Props) {
           <button style={{ ...S.modeCard, borderColor: '#f5b7b1', background: 'rgba(255,240,240,0.85)' }} onClick={onChallenge}>
             <div style={S.modeIcon}>⭐</div>
             <div style={{ ...S.modeTitle, color: '#c0392b' }}>Challenge</div>
-            <div style={S.modeDesc}>Practice weak words</div>
+            <div style={S.modeDesc}>Practice weakness</div>
           </button>
         </div>
         <button style={S.adminHint} onClick={() => {

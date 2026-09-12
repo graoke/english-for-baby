@@ -102,7 +102,7 @@ export default function Challenge({ showText, onBack }: Props) {
   if (empty) return (
     <div style={S.center}>
       <div style={S.doneIcon}>🌟</div>
-      <div style={S.doneText}>No weak sentences!</div>
+      <div style={S.doneText}>No weakness!</div>
       <div style={{ color: '#8b7355', marginBottom: 16 }}>Your child is doing great. Keep practicing!</div>
       <button style={S.backBtn} onClick={onBack}>← Back</button>
     </div>
@@ -111,7 +111,7 @@ export default function Challenge({ showText, onBack }: Props) {
     <div style={S.center}>
       <div style={S.doneIcon}>🎉</div>
       <div style={S.doneText}>Challenge Complete!</div>
-      <div style={{ color: '#8b7355', marginBottom: 16 }}>You reviewed {totalPages} weak sentences.</div>
+      <div style={{ color: '#8b7355', marginBottom: 16 }}>You reviewed {totalPages} weakness.</div>
       <button style={S.backBtn} onClick={onBack}>← Back</button>
     </div>
   )
@@ -128,7 +128,7 @@ export default function Challenge({ showText, onBack }: Props) {
           <div style={S.modalCard}>
             <div style={S.modalStars}>⭐ 🌟 ⭐</div>
             <div style={S.modalTitle}>Challenge Complete!</div>
-            <div style={S.modalText}>You reviewed {totalPages} weak sentences</div>
+            <div style={S.modalText}>You reviewed {totalPages} weakness</div>
             <div style={S.modalScore}>获得 ★ {stickerCount}</div>
             <button style={S.modalBtn} onClick={onBack}>确定</button>
           </div>
