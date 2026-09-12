@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Confetti from './Confetti'
-import { startRecording, uploadRecording } from '../utils/recording'
+import { startRecording as startMediaRecording, uploadRecording } from '../utils/recording'
 
 interface ChallengeItem {
   id: number; text: string; text_zh: string | null
@@ -67,7 +67,7 @@ export default function Challenge({ showText, onBack }: Props) {
   const startRecording = async () => {
     try {
       setError(null)
-      const result = await startRecording({
+      const result = await startMediaRecording({
         onRecordingComplete: ({ blob, durationMs, mimeType }) => {
           setLastRecordingUrl(URL.createObjectURL(blob))
           setRecordingState('idle')

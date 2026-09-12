@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from ..database import engine
+from ..database import engine, DATA_DIR
 from ..models import Lesson, DrillItem
 from ..schemas import LessonCreate, LessonUpdate
 
@@ -115,7 +115,23 @@ def delete_lesson(lesson_id: int, session: Session = Depends(get_session), _=Dep
     lesson = session.get(Lesson, lesson_id)
     if not lesson:
         raise HTTPException(404, "Lesson not found")
+
+    # Soft-delete lesson
     lesson.enabled = False
     session.add(lesson)
+
+    # Soft-delete associated drill items and clean up audio files
+    items = session.exec(
+        select(DrillItem).where(DrillItem.lesson_id == lesson_id)
+    ).all()
+    for item in items:
+        item.enabled = False
+        session.add(item)
+        # Remove TTS audio file if exists
+        if item.tts_path:
+            audio_file = DATA_DIR / "audio" / item.tts_path
+            if audio_file.exists():
+                audio_file.unlink(missing_ok=True)
+
     session.commit()
     return {"ok": True}

@@ -114,8 +114,27 @@ function AppSettingsPanel({ settings, onUpdate }: { settings: AppSettings; onUpd
 function LessonList({ onEdit, onCreate }: { onEdit: (id: number) => void; onCreate: () => void }) {
   const [lessons, setLessons] = useState<any[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
   const load = () => authFetch('/api/lessons').then(r => r.json()).then(d => { setLessons(d); setLoaded(true) })
   useEffect(() => { if (!loaded) load() }, [])
+
+  const handleDelete = async (id: number, title: string) => {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return
+    setDeletingId(id)
+    try {
+      const res = await authFetch(`/api/lessons/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        alert('Delete failed — are you logged in as parent?')
+        return
+      }
+      setLessons(prev => prev.filter(l => l.id !== id))
+    } catch (e) {
+      alert('Delete failed')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={S.listHeader}>
@@ -126,7 +145,16 @@ function LessonList({ onEdit, onCreate }: { onEdit: (id: number) => void; onCrea
         {lessons.map(l => (
           <div key={l.id} style={S.listItem}>
             <div><div style={S.listItemTitle}>{l.title}</div><div style={S.listItemMeta}>{l.page_count} pages</div></div>
-            <button style={S.editBtn} onClick={() => onEdit(l.id)}>Edit</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button style={S.editBtn} onClick={() => onEdit(l.id)}>Edit</button>
+              <button
+                style={S.deleteBtn}
+                onClick={() => handleDelete(l.id, l.title)}
+                disabled={deletingId === l.id}
+              >
+                {deletingId === l.id ? '...' : '🗑'}
+              </button>
+            </div>
           </div>
         ))}
         {lessons.length === 0 && loaded && <div style={S.empty}>No lessons yet.</div>}
@@ -187,7 +215,7 @@ function LessonEditor({ lessonId, onDone, showToast }: { lessonId: number | null
   }
 
   const playItemTts = (item: ItemDraft) => {
-    if (item.tts_path) { new Audio(`/data/audio/${item.tts_path}`).play() }
+    if (item.tts_path) { new Audio(`/data/audio/${item.tts_path}?t=${Date.now()}`).play() }
   }
 
   const regenerateItemTts = async (idx: number, item: ItemDraft) => {
@@ -717,6 +745,7 @@ const S: Record<string, React.CSSProperties> = {
   primaryBtn: { padding: '7px 16px', borderRadius: 20, border: 'none', background: '#d4a574', color: 'white', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   secondaryBtn: { padding: '7px 14px', borderRadius: 20, border: '2px solid #d4a574', background: 'white', color: '#8b6914', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },
   editBtn: { padding: '5px 14px', borderRadius: 12, border: '2px solid #d4a574', background: 'white', color: '#8b6914', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
+  deleteBtn: { padding: '5px 10px', borderRadius: 12, border: '2px solid #e0d5c0', background: 'white', color: '#c0392b', fontSize: '0.85rem', cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 },
   addBtn: { padding: '5px 14px', borderRadius: 12, border: '2px solid #27ae60', background: 'white', color: '#27ae60', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' },
   removeBtn: { width: 28, height: 28, borderRadius: '50%', border: '2px solid #e0d5c0', background: 'white', color: '#c0392b', fontSize: '1.1rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   ttsBtn: { padding: '7px 12px', borderRadius: 20, border: '2px solid #3498db', background: 'white', color: '#2980b9', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' },

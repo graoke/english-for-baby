@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Confetti from './Confetti'
-import { startRecording, uploadRecording } from '../utils/recording'
+import { startRecording as startMediaRecording, uploadRecording } from '../utils/recording'
 
 interface DrillItem {
   id: number; page_no: number; content_type: string
@@ -83,7 +83,7 @@ export default function DrillPlayer({ lessonId, lessonTitle, showText, onBack }:
   const startRecording = async () => {
     try {
       setError(null)
-      const result = await startRecording({
+      const result = await startMediaRecording({
         onRecordingComplete: ({ blob, durationMs, mimeType }) => {
           setLastRecordingUrl(URL.createObjectURL(blob))
           setRecordingState('idle')
