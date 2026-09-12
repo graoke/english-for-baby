@@ -4,7 +4,7 @@ import DrillPlayer from './components/DrillPlayer'
 import Challenge from './components/Challenge'
 import Admin from './pages/Admin'
 import AdminGuard from './components/AdminGuard'
-import { authFetch } from './utils/authFetch'
+import { authFetch, clearToken } from './utils/authFetch'
 
 type Screen = 'picker' | 'practice' | 'challenge' | 'admin'
 
@@ -46,6 +46,11 @@ export default function App() {
       window.removeEventListener('open-picker', pickerHandler)
     }
   }, [])
+
+  // Clear auth token when leaving admin panel (require PIN next time)
+  useEffect(() => {
+    if (screen !== 'admin') clearToken()
+  }, [screen])
 
   const updateSettings = (patch: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...patch }))

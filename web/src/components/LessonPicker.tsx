@@ -50,10 +50,6 @@ export default function LessonPicker({ onSelect, onChallenge }: Props) {
             <div style={S.modeDesc}>Practice weakness</div>
           </button>
         </div>
-        <button style={S.adminHint} onClick={() => {
-          // trigger admin via parent
-          window.dispatchEvent(new CustomEvent('open-admin'))
-        }}>👨‍👩‍👧 Parent Panel</button>
       </div>
     )
   }
